@@ -35,7 +35,7 @@ class KitchenV0(robot_env.RobotEnv):
         os.path.dirname(__file__),
         '../franka/assets/franka_kitchen_jntpos_act_ab.xml')
     N_DOF_ROBOT = 9
-    N_DOF_OBJECT = 21
+    N_DOF_OBJECT = 0
 
     def __init__(self, 
             robot_params={}, frame_skip=40, 
@@ -101,7 +101,7 @@ class KitchenV0(robot_env.RobotEnv):
         if not self.initializing:
             a = self.act_mid + a * self.act_amp  # mean center and scale
         else:
-            self.goal = self._get_task_goal()  # update goal if init
+            ...
 
         self.robot.step(
             self, a, step_duration=self.skip * self.model.opt.timestep)
@@ -146,7 +146,6 @@ class KitchenV0(robot_env.RobotEnv):
         reset_vel = self.init_qvel[:].copy()
         self.robot.reset(self, reset_pos, reset_vel)
         self.sim.forward()
-        self.goal = self._get_task_goal()  #sample a new goal on reset
         return self._get_obs()
 
     def evaluate_success(self, paths):
@@ -169,19 +168,6 @@ class KitchenV0(robot_env.RobotEnv):
 
     def close_env(self):
         self.robot.close()
-
-    def set_goal(self, goal):
-        self.goal = goal
-
-    def _get_task_goal(self):
-        return self.goal
-
-    # Only include goal
-    @property
-    def goal_space(self):
-        len_obs = self.observation_space.low.shape[0]
-        env_lim = np.abs(self.observation_space.low[0])
-        return spaces.Box(low=-env_lim, high=env_lim, shape=(len_obs//2,))
 
     def convert_to_active_observation(self, observation):
         return observation

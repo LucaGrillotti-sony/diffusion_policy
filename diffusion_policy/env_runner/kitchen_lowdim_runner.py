@@ -53,9 +53,9 @@ class KitchenLowdimRunner(BaseLowdimRunner):
         steps_per_render = int(max(task_fps // fps, 1))
 
         def env_fn():
-            from diffusion_policy.env.kitchen.v0 import KitchenAllV0
-            from diffusion_policy.env.kitchen.kitchen_lowdim_wrapper import KitchenLowdimWrapper
-            env = KitchenAllV0(use_abs_action=abs_action)
+            from diffusion_policy.env.franka.base import FrankaBase
+            from diffusion_policy.env.franka.kitchen_lowdim_wrapper import KitchenLowdimWrapper
+            env = FrankaBase(use_abs_action=abs_action)
             env.robot_noise_ratio = robot_noise_ratio
             return MultiStepWrapper(
                 VideoRecordingWrapper(
