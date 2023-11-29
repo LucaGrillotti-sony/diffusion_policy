@@ -1,3 +1,6 @@
+.idea/
+*.ckpt
+
 bin
 logs
 wandb
