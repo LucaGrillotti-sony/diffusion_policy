@@ -26,6 +26,11 @@
     <map force="0.1" fogend="5" />
     </visual>
 
+    <compiler inertiafromgeom='auto' inertiagrouprange='3 5' angle="radian"
+          meshdir="../../../../adept_models/kitchen"
+          texturedir="../../../../adept_models/kitchen"/>
+
+
     <equality>
         <weld body1="vive_controller" body2="world" solref="0.02 1" solimp=".7 .95 0.050"/>
     </equality>
@@ -51,7 +56,7 @@
 
 
     <keyframe>
-        <key qpos='0.16 -1.76 1.84 -2.51 0.36 0.79 1.55 0.00 0.0 1.25561e-05 1.57437e-07 1.25561e-05 1.57437e-07 1.25561e-05 1.57437e-07 1.25561e-05 1.57437e-07 8.24417e-05 9.48283e-05 0 0 0 0 -0.269 0.35 1.61523 1 1.34939e-19 -3.51612e-05 -7.50168e-19'/>
+        <key qpos='0.16 -1.76 1.84 -2.51 0.36 0.79 1.55 0.00 0.0' />
     </keyframe>
 
 </mujoco>

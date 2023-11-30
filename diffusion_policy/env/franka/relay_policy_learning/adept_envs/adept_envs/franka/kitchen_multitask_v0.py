@@ -51,7 +51,7 @@ class KitchenV0(robot_env.RobotEnv):
         super().__init__(
             self.MODEl,
             robot=self.make_robot(
-                n_jnt=self.N_DOF_ROBOT,  #root+robot_jnts
+                n_jnt=self.N_DOF_ROBOT,  # root + robot_jnts
                 n_obj=self.N_DOF_OBJECT,
                 **robot_params),
             frame_skip=frame_skip,
@@ -66,12 +66,7 @@ class KitchenV0(robot_env.RobotEnv):
         # For the microwave kettle slide hinge
         self.init_qpos = np.array([ 1.48388023e-01, -1.76848573e+00,  1.84390296e+00, -2.47685760e+00,
                                     2.60252026e-01,  7.12533105e-01,  1.59515394e+00,  4.79267505e-02,
-                                    3.71350919e-02, -2.66279850e-04, -5.18043486e-05,  3.12877220e-05,
-                                   -4.51199853e-05, -3.90842156e-06, -4.22629655e-05,  6.28065475e-05,
-                                    4.04984708e-05,  4.62730939e-04, -2.26906415e-04, -4.65501369e-04,
-                                   -6.44129196e-03, -1.77048263e-03,  1.08009684e-03, -2.69397440e-01,
-                                    3.50383255e-01,  1.61944683e+00,  1.00618764e+00,  4.06395120e-03,
-                                   -6.62095997e-03, -2.68278933e-04])
+                                    3.71350919e-02,])
 
         self.init_qvel = self.sim.model.key_qvel[0].copy()
 
@@ -128,18 +123,15 @@ class KitchenV0(robot_env.RobotEnv):
         return obs, reward_dict['r_total'], done, env_info
 
     def _get_obs(self):
-        t, qp, qv, obj_qp, obj_qv = self.robot.get_obs(
+        t, qp, qv = self.robot.get_obs(
             self, robot_noise_ratio=self.robot_noise_ratio)
 
         self.obs_dict = {}
         self.obs_dict['t'] = t
         self.obs_dict['qp'] = qp
         self.obs_dict['qv'] = qv
-        self.obs_dict['obj_qp'] = obj_qp
-        self.obs_dict['obj_qv'] = obj_qv
-        self.obs_dict['goal'] = self.goal
-        if self.goal_concat:
-            return np.concatenate([self.obs_dict['qp'], self.obs_dict['obj_qp'], self.obs_dict['goal']])
+
+        return self.obs_dict['qp']
 
     def reset_model(self):
         reset_pos = self.init_qpos[:].copy()

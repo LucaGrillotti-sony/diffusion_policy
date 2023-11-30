@@ -159,7 +159,7 @@ class TrainDiffusionTransformerLowdimWorkspace(BaseWorkspace):
                         leave=False, mininterval=cfg.training.tqdm_interval_sec) as tepoch:
                     for batch_idx, batch in enumerate(tepoch):
                         # device transfer
-                        batch = dict_apply(batch, lambda x: x.to(device, non_blocking=True))
+                        batch = dict_apply(batch, lambda x: x.to(device, non_blocking=True)[..., :18])
                         if train_sampling_batch is None:
                             train_sampling_batch = batch
 

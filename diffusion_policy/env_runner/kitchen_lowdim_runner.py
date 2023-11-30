@@ -81,8 +81,8 @@ class KitchenLowdimRunner(BaseLowdimRunner):
                 max_episode_steps=max_steps
             )
 
-        all_init_qpos = np.load(pathlib.Path(dataset_dir) / "all_init_qpos.npy")
-        all_init_qvel = np.load(pathlib.Path(dataset_dir) / "all_init_qvel.npy")
+        all_init_qpos = np.load(pathlib.Path(dataset_dir) / "all_init_qpos.npy")[:,:9]
+        all_init_qvel = np.load(pathlib.Path(dataset_dir) / "all_init_qvel.npy")[:,:9]
         module_logger.info(f'Loaded {len(all_init_qpos)} known initial conditions.')
 
         env_fns = [env_fn] * n_envs
@@ -100,7 +100,7 @@ class KitchenLowdimRunner(BaseLowdimRunner):
                 init_qvel = all_init_qvel[i]
 
             def init_fn(env, init_qpos=init_qpos, init_qvel=init_qvel, enable_render=enable_render):
-                from diffusion_policy.env.kitchen.kitchen_lowdim_wrapper import KitchenLowdimWrapper
+                from diffusion_policy.env.franka.kitchen_lowdim_wrapper import KitchenLowdimWrapper
                 # setup rendering
                 # video_wrapper
                 assert isinstance(env.env, VideoRecordingWrapper)
@@ -128,7 +128,7 @@ class KitchenLowdimRunner(BaseLowdimRunner):
             enable_render = i < n_test_vis
 
             def init_fn(env, seed=seed, enable_render=enable_render):
-                from diffusion_policy.env.kitchen.kitchen_lowdim_wrapper import KitchenLowdimWrapper
+                from diffusion_policy.env.franka.kitchen_lowdim_wrapper import KitchenLowdimWrapper
                 # setup rendering
                 # video_wrapper
                 assert isinstance(env.env, VideoRecordingWrapper)
@@ -161,7 +161,7 @@ class KitchenLowdimRunner(BaseLowdimRunner):
             # obs/action spaces and metadata.
             env = gym.Env()
             env.observation_space = gym.spaces.Box(
-                -8, 8, shape=(60,), dtype=np.float32)
+                -8, 8, shape=(9,), dtype=np.float32)
             env.action_space = gym.spaces.Box(
                 -8, 8, shape=(9,), dtype=np.float32)
             env.metadata = {
@@ -227,6 +227,7 @@ class KitchenLowdimRunner(BaseLowdimRunner):
 
             # start rollout
             obs = env.reset()
+            print("SHAPES", obs.shape)
             past_action = None
             policy.reset()
 
@@ -294,8 +295,8 @@ class KitchenLowdimRunner(BaseLowdimRunner):
             total_reward = np.sum(this_rewards) / 7
             prefix_total_reward_map[prefix].append(total_reward)
 
-            n_completed_tasks = len(last_info[i]['completed_tasks'])
-            prefix_n_completed_map[prefix].append(n_completed_tasks)
+            # n_completed_tasks = len(last_info[i]['completed_tasks'])
+            # prefix_n_completed_map[prefix].append(n_completed_tasks)
 
             # visualize sim
             video_path = all_video_paths[i]

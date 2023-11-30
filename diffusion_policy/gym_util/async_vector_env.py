@@ -665,6 +665,9 @@ def _worker_shared_memory(index, env_fn, pipe, parent_pipe, shared_memory, error
                     "`_check_observation_space`}.".format(command)
                 )
     except (KeyboardInterrupt, Exception):
+        import traceback
+        print("TRACEBACK")
+        traceback.print_exc()
         error_queue.put((index,) + sys.exc_info()[:2])
         pipe.send((None, False))
     finally:

@@ -28,10 +28,10 @@ class KitchenMjlLowdimDataset(BaseLowdimDataset):
             raise NotImplementedError()
 
         robot_pos_noise_amp = np.array([0.1   , 0.1   , 0.1   , 0.1   , 0.1   , 0.1   , 0.1   , 0.1   ,
-            0.1   , 0.005 , 0.005 , 0.0005, 0.0005, 0.0005, 0.0005, 0.0005,
-            0.0005, 0.005 , 0.005 , 0.005 , 0.1   , 0.1   , 0.1   , 0.005 ,
-            0.005 , 0.005 , 0.1   , 0.1   , 0.1   , 0.005 ], dtype=np.float32)
+            0.1   , ], dtype=np.float32)
         rng = np.random.default_rng(seed=seed)
+
+        obs_size = 9
 
         data_directory = pathlib.Path(dataset_dir)
         self.replay_buffer = ReplayBuffer.create_empty_numpy()
@@ -39,16 +39,12 @@ class KitchenMjlLowdimDataset(BaseLowdimDataset):
             try:
                 data = parse_mjl_logs(str(mjl_path.absolute()), skipamount=40)
                 qpos = data['qpos'].astype(np.float32)
-                obs = np.concatenate([
-                    qpos[:,:9],
-                    qpos[:,-21:],
-                    np.zeros((len(qpos),30),dtype=np.float32)
-                ], axis=-1)
+                obs = qpos[:,:obs_size]
                 if robot_noise_ratio > 0:
                     # add observation noise to match real robot
                     noise = robot_noise_ratio * robot_pos_noise_amp * rng.uniform(
-                        low=-1., high=1., size=(obs.shape[0], 30))
-                    obs[:,:30] += noise
+                        low=-1., high=1., size=(obs.shape[0], obs_size))
+                    obs[:, :obs_size] += noise
                 episode = {
                     'obs': obs,
                     'action': data['ctrl'].astype(np.float32)

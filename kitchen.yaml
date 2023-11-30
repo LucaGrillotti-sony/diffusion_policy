@@ -43,7 +43,7 @@ n_latency_steps: 0
 n_obs_steps: 4
 name: train_diffusion_transformer_lowdim
 obs_as_cond: true
-obs_dim: 60
+obs_dim: 9
 optimizer:
   betas:
   - 0.9
@@ -58,7 +58,7 @@ policy:
   model:
     _target_: diffusion_policy.model.diffusion.transformer_for_diffusion.TransformerForDiffusion
     causal_attn: true
-    cond_dim: 60
+    cond_dim: 9
     horizon: 16
     input_dim: 9
     n_cond_layers: 0
@@ -84,7 +84,7 @@ policy:
     variance_type: fixed_small
   num_inference_steps: 100
   obs_as_cond: true
-  obs_dim: 60
+  obs_dim: 9
   pred_action_steps_only: false
 pred_action_steps_only: false
 task:
@@ -122,7 +122,7 @@ task:
     train_start_seed: 0
   keypoint_dim: 3
   name: kitchen_lowdim
-  obs_dim: 60
+  obs_dim: 9
   robot_noise_ratio: 0.1
 task_name: kitchen_lowdim
 training:
