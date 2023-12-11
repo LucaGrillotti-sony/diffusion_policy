@@ -1,4 +1,4 @@
-_target_: diffusion_policy.workspace.train_diffusion_transformer_lowdim_workspace.TrainDiffusionTransformerLowdimWorkspace
+_target_: diffusion_policy.workspace.train_diffusion_unet_lowdim_workspace.TrainDiffusionUnetLowdimWorkspace
 action_dim: 9
 checkpoint:
   save_last_ckpt: true
@@ -43,13 +43,15 @@ n_latency_steps: 0
 n_obs_steps: 4
 name: train_diffusion_transformer_lowdim
 obs_as_cond: true
-obs_dim: 9
+obs_dim: 10
 optimizer:
+  _target_: torch.optim.AdamW
   betas:
-  - 0.9
-  - 0.95
-  learning_rate: 0.0001
-  weight_decay: 0.001
+    - 0.95
+    - 0.999
+  eps: 1.0e-08
+  lr: 0.0001
+  weight_decay: 1.0e-06
 past_action_visible: false
 policy:
   _target_: diffusion_policy.policy.diffusion_transformer_lowdim_policy.DiffusionTransformerLowdimPolicy
@@ -58,7 +60,7 @@ policy:
   model:
     _target_: diffusion_policy.model.diffusion.transformer_for_diffusion.TransformerForDiffusion
     causal_attn: true
-    cond_dim: 9
+    cond_dim: 10
     horizon: 16
     input_dim: 9
     n_cond_layers: 0
@@ -84,16 +86,16 @@ policy:
     variance_type: fixed_small
   num_inference_steps: 100
   obs_as_cond: true
-  obs_dim: 9
+  obs_dim: 10
   pred_action_steps_only: false
 pred_action_steps_only: false
 task:
   abs_action: true
   action_dim: 9
   dataset:
-    _target_: diffusion_policy.dataset.kitchen_mjl_lowdim_dataset.KitchenMjlLowdimDataset
+    _target_: diffusion_policy.dataset.kitchen_mjl_lowdim_dataset.KitchenCustomDataset
     abs_action: true
-    dataset_dir: data/kitchen/kitchen_demos_multitask
+    dataset_dir: data/kitchen/kitchen_demos_multitask/new_dataset/
     horizon: 16
     pad_after: 7
     pad_before: 3
@@ -103,7 +105,7 @@ task:
   env_runner:
     _target_: diffusion_policy.env_runner.kitchen_lowdim_runner.KitchenLowdimRunner
     abs_action: true
-    dataset_dir: data/kitchen
+    dataset_dir: data/kitchen/kitchen_demos_multitask/new_dataset/
     fps: 12.5
     max_steps: 280
     n_action_steps: 8
@@ -122,7 +124,7 @@ task:
     train_start_seed: 0
   keypoint_dim: 3
   name: kitchen_lowdim
-  obs_dim: 9
+  obs_dim: 10
   robot_noise_ratio: 0.1
 task_name: kitchen_lowdim
 training:
