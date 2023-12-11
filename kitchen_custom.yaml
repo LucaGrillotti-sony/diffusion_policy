@@ -103,7 +103,7 @@ task:
     seed: 42
     val_ratio: 0.02
   env_runner:
-    _target_: diffusion_policy.env_runner.kitchen_lowdim_runner.KitchenLowdimRunner
+    _target_: diffusion_policy.env_runner.real_robot.RealRobot
     abs_action: true
     dataset_dir: data/kitchen/kitchen_demos_multitask/dataset_aksaya_controller/
     fps: 12.5
