@@ -42,12 +42,14 @@ class KitchenCustomDataset(BaseLowdimDataset):
 
         for i, np_path in enumerate(tqdm(list(data_directory.glob(f'*/{DQ_DATA_PATH}')))):
             try:
-                dq_with_time = np.load(np_path.absolute)
+                dq_with_time = np.load(np_path.absolute())
                 dq = dq_with_time[:, 1:]
                 _res_folder = np_path.parents[0]
                 obs_path = _res_folder / OBS_DATA_PATH
                 times_to_evaluate = dq_with_time[:, 0].ravel()
                 obs = self.load_obs(obs_path, times_to_evaluate)
+
+                obs = obs[:, :obs_size]  # TODO remove this line and do this in preprocessing
 
                 if robot_noise_ratio > 0:
                     # add observation noise to match real robot

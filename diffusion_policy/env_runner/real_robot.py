@@ -1,8 +1,9 @@
+from diffusion_policy.env_runner.base_lowdim_runner import BaseLowdimRunner
 from diffusion_policy.policy.base_image_policy import BaseImagePolicy
 from diffusion_policy.env_runner.base_image_runner import BaseImageRunner
 
 
-class RealRobot(BaseImageRunner):
+class RealRobot(BaseLowdimRunner):
     def __init__(self,
                  output_dir):
         super().__init__(output_dir)

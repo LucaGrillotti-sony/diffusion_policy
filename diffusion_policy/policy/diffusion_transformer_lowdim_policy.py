@@ -89,7 +89,6 @@ class DiffusionTransformerLowdimPolicy(BaseLowdimPolicy):
 
         return trajectory
 
-
     def predict_action(self, obs_dict: Dict[str, torch.Tensor]) -> Dict[str, torch.Tensor]:
         """
         obs_dict: must include "obs" key
