@@ -95,7 +95,7 @@ task:
   dataset:
     _target_: diffusion_policy.dataset.kitchen_mjl_lowdim_dataset.KitchenCustomDataset
     abs_action: true
-    dataset_dir: data/kitchen/kitchen_demos_multitask/new_dataset/
+    dataset_dir: data/kitchen/kitchen_demos_multitask/dataset_aksaya_controller/
     horizon: 16
     pad_after: 7
     pad_before: 3
@@ -105,7 +105,7 @@ task:
   env_runner:
     _target_: diffusion_policy.env_runner.kitchen_lowdim_runner.KitchenLowdimRunner
     abs_action: true
-    dataset_dir: data/kitchen/kitchen_demos_multitask/new_dataset/
+    dataset_dir: data/kitchen/kitchen_demos_multitask/dataset_aksaya_controller/
     fps: 12.5
     max_steps: 280
     n_action_steps: 8
