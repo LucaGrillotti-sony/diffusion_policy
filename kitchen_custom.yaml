@@ -27,7 +27,7 @@ keypoint_visible_rate: 1.0
 logging:
   group: null
   id: null
-  mode: disabled
+  mode: online
   name: 2023.01.27-17.53.15_train_diffusion_transformer_lowdim_kitchen_lowdim
   project: diffusion_policy_debug
   resume: true
@@ -103,14 +103,14 @@ task:
     seed: 42
     val_ratio: 0.02
   env_runner:
-    _target_: diffusion_policy.env_runner.real_robot.RealRobot
+    _target_: diffusion_policy.env_runner.real_robot_runner.RealRobot
 #    abs_action: true
 #    dataset_dir: data/kitchen/kitchen_demos_multitask/dataset_aksaya_controller/
 #    fps: 12.5
 #    max_steps: 280
-#    n_action_steps: 8
+    n_action_steps: 8
 #    n_envs: null
-#    n_obs_steps: 4
+    n_obs_steps: 4
 #    n_test: 50
 #    n_test_vis: 4
 #    n_train: 6
