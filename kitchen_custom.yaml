@@ -1,4 +1,4 @@
-_target_: diffusion_policy.workspace.train_diffusion_unet_lowdim_workspace.TrainDiffusionUnetLowdimWorkspace
+_target_: diffusion_policy.workspace.train_diffusion_transformer_lowdim_workspace.TrainDiffusionTransformerLowdimWorkspace
 action_dim: 7
 checkpoint:
   save_last_ckpt: true
@@ -45,13 +45,11 @@ name: train_diffusion_transformer_lowdim
 obs_as_cond: true
 obs_dim: 7
 optimizer:
-  _target_: torch.optim.AdamW
   betas:
-    - 0.95
-    - 0.999
-  eps: 1.0e-08
-  lr: 0.0001
-  weight_decay: 1.0e-06
+  - 0.9
+  - 0.95
+  learning_rate: 0.0001
+  weight_decay: 0.001
 past_action_visible: false
 policy:
   _target_: diffusion_policy.policy.diffusion_transformer_lowdim_policy.DiffusionTransformerLowdimPolicy
@@ -103,14 +101,14 @@ task:
     seed: 42
     val_ratio: 0.02
   env_runner:
-    _target_: diffusion_policy.env_runner.real_robot_runner.RealRobot
+    _target_: diffusion_policy.env_runner.real_robot_runner.DummyRobot
 #    abs_action: true
 #    dataset_dir: data/kitchen/kitchen_demos_multitask/dataset_aksaya_controller/
 #    fps: 12.5
 #    max_steps: 280
-    n_action_steps: 8
+#    n_action_steps: 8
 #    n_envs: null
-    n_obs_steps: 4
+#    n_obs_steps: 4
 #    n_test: 50
 #    n_test_vis: 4
 #    n_train: 6

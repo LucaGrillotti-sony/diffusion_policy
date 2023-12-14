@@ -32,7 +32,7 @@ class DiffusionTransformerLowdimPolicy(BaseLowdimPolicy):
         self.noise_scheduler = noise_scheduler
         self.mask_generator = LowdimMaskGenerator(
             action_dim=action_dim,
-            obs_dim=0 if (obs_as_cond) else obs_dim,
+            obs_dim=0 if obs_as_cond else obs_dim,
             max_n_obs_steps=n_obs_steps,
             fix_obs_steps=True,
             action_visible=False

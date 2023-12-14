@@ -1,4 +1,5 @@
 import queue
+from typing import Dict
 
 import gym
 from gym import spaces
@@ -8,6 +9,7 @@ import torch
 import collections
 import pathlib
 import tqdm
+import time
 import dill
 import math
 import logging
@@ -29,107 +31,12 @@ module_logger = logging.getLogger(__name__)
 
 
 
-class EnvControlWrapper():
-    def __init__(self, jpc_pub, n_obs_steps, n_action_steps):
-        self.observation_space = gym.spaces.Box(
-            -8, 8, shape=(7,), dtype=np.float32)  # TODO
-        self.action_space = gym.spaces.Box(
-            -8, 8, shape=(7,), dtype=np.float32)  # TODO
-        self._jpc_pub = jpc_pub
-        # self.init_pos = np.load(osp.join(osp.dirname(__file__), 'init_joint_pos.npy'))
-        self.init_pos = np.zeros(7)  # TODO
-        self._jstate = np.zeros(7)  # TODO
+class DummyRobot(BaseLowdimRunner):
+    def __init__(self, output_dir):
+        super().__init__(output_dir)
 
-        self.n_obs_steps = n_obs_steps
-        self.n_action_steps = n_action_steps
-        self.max_steps = 150  # TODO
-
-        self.all_observations = []  # TODO: same for reward?
-
-        self.queue_actions = queue.Queue()
-
-    def reset(self):
-        # TODO: reset all observations, queue actions? Also when a done is achieved?
-        self.jpc_send_goal(self.init_pos)
-        obs = self.get_obs()
-        self.all_observations.append(obs)
-        stacked_obs = self._compute_stacked_obs(n_steps=self.n_obs_steps)
-        return stacked_obs
-
-    def _compute_obs(self, ):
-        jnts = np.array(self._jstate[:7])
-        return jnts
-
-    def get_obs(self):
-        if self._jstate is None:
-            return None
-        else:
-            return self._compute_obs()
-
-    def push_actions(self, list_actions):
-        if not self.queue_actions.empty():
-            raise ValueError("Queue actions is not empty, cannot push anything new to it")
-        assert len(list_actions) == self.n_action_steps
-        for action in list_actions:
-            self.queue_actions.put(action)
-
-    def _compute_stacked_obs(self, n_steps=1):
-        """
-        Output (n_steps,) + obs_shape
-        """
-        assert(len(self.all_observations) > 0)
-        if isinstance(self.observation_space, spaces.Box):
-            return self.stack_last_n_obs(self.all_observations, n_steps)
-        elif isinstance(self.observation_space, spaces.Dict):
-            result = dict()
-            for key in self.observation_space.keys():
-                result[key] = self.stack_last_n_obs(
-                    [obs[key] for obs in self.all_observations],
-                    n_steps
-                )
-            return result
-        else:
-            raise RuntimeError('Unsupported space type')
-
-    @classmethod
-    def stack_last_n_obs(cls, all_obs, n_steps):
-        all_obs = list(all_obs)
-        result = np.zeros((n_steps,) + all_obs[-1].shape,
-                          dtype=all_obs[-1].dtype)
-        start_idx = -min(n_steps, len(all_obs))
-        result[start_idx:] = np.array(all_obs[start_idx:])
-        if n_steps > len(all_obs):
-            # pad
-            result[:start_idx] = result[start_idx]
-        return result
-
-    def step(self):
-        if self.queue_actions.empty():
-            raise ValueError("Queue actions should not be empty when calling step")
-        action = self.queue_actions.get()
-        self.jpc_send_goal(action)
-        obs = self.get_obs()
-        reward = -1.
-        info = {}
-        done = False
-
-        self.all_observations.append(obs)
-        stacked_obs = self._compute_stacked_obs(n_steps=self.n_obs_steps)
-
-        if (self.max_steps is not None) and (len(self.all_observations) > self.max_steps):
-            done = True
-
-        return stacked_obs, reward, done, info  # TODO
-
-    def get_jstate(self):
-        return self._jstate
-
-    def set_jstate(self, msg):
-        self._jstate = msg
-
-    def jpc_send_goal(self, jpos):
-        ...
-        # print("jpos", jpos)
+    def run(self, policy: BaseLowdimPolicy) -> Dict:
+        return dict()
 
 
 class RealRobot(BaseLowdimRunner):
@@ -140,7 +47,6 @@ class RealRobot(BaseLowdimRunner):
         super().__init__(output_dir)
 
         env = EnvControlWrapper(None, n_obs_steps=n_obs_steps, n_action_steps=n_action_steps)
-        self.max_steps = 150
         self.env = env
         print("N action steps", n_action_steps)
         print("N obs steps", n_obs_steps)
@@ -175,8 +81,11 @@ class RealRobot(BaseLowdimRunner):
 
                 # run policy
                 with torch.no_grad():
+                    start = time.time()
                     action_dict = policy.predict_action(obs_dict)
-
+                    end = time.time()
+                    print("inference time",  end - start, action_dict["action"].shape)
+                    # time.sleep(0.7)
                 # device_transfer
                 np_action_dict = dict_apply(action_dict,
                                             lambda x: x.detach().to('cpu').numpy())
