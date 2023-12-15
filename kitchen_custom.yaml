@@ -93,7 +93,7 @@ task:
   dataset:
     _target_: diffusion_policy.dataset.kitchen_mjl_lowdim_dataset.KitchenCustomDataset
     abs_action: true
-    dataset_dir: data/kitchen/kitchen_demos_multitask/dataset_aksaya_controller/
+    dataset_dir: data/kitchen/kitchen_demos_multitask/cartesian_control/
     horizon: 16
     pad_after: 7
     pad_before: 3

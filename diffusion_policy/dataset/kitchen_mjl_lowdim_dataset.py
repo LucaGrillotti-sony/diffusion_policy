@@ -37,29 +37,23 @@ class KitchenCustomDataset(BaseLowdimDataset):
 
         self.replay_buffer = ReplayBuffer.create_empty_numpy()
 
-        DQ_DATA_PATH = "dq_with_time.npy"
+        CARTESIAN_CONTROL_PATH = "cartesian_control_with_time.npy"
         OBS_DATA_PATH = "obs_with_time.npy"
 
-        for i, np_path in enumerate(tqdm(list(data_directory.glob(f'*/{DQ_DATA_PATH}')))):
+        for i, np_path in enumerate(tqdm(list(data_directory.glob(f'*/{CARTESIAN_CONTROL_PATH}')))):
             try:
-                dq_with_time = np.load(np_path.absolute())
-                dq = dq_with_time[:, 1:]
+                cartesian_control_with_time = np.load(np_path.absolute())
+                cartesian_control = cartesian_control_with_time[:, 1:]
                 _res_folder = np_path.parents[0]
                 obs_path = _res_folder / OBS_DATA_PATH
-                times_to_evaluate = dq_with_time[:, 0].ravel()
+                times_to_evaluate = cartesian_control_with_time[:, 0].ravel()
                 obs = self.load_obs(obs_path, times_to_evaluate)
 
                 obs = obs[:, :obs_size]  # TODO remove this line and do this in preprocessing
 
-                if robot_noise_ratio > 0:
-                    # add observation noise to match real robot
-                    noise = robot_noise_ratio * robot_pos_noise_amp * rng.uniform(
-                        low=-1., high=1., size=(obs.shape[0], obs_size))
-                    obs[:, :obs_size] += noise
-
                 episode = {
                     'obs': obs.astype(np.float32),
-                    'action': dq.astype(np.float32)
+                    'action': cartesian_control.astype(np.float32)
                 }
                 self.replay_buffer.add_episode(episode)
             except Exception as e:
@@ -193,11 +187,11 @@ class KitchenMjlLowdimDataset(BaseLowdimDataset):
                 data = parse_mjl_logs(str(mjl_path.absolute()), skipamount=40)
                 qpos = data['qpos'].astype(np.float32)
                 obs = qpos[:,:obs_size]
-                if robot_noise_ratio > 0:
+                # if robot_noise_ratio > 0:
                     # add observation noise to match real robot
-                    noise = robot_noise_ratio * robot_pos_noise_amp * rng.uniform(
-                        low=-1., high=1., size=(obs.shape[0], obs_size))
-                    obs[:, :obs_size] += noise
+                    # noise = robot_noise_ratio * robot_pos_noise_amp * rng.uniform(
+                    #     low=-1., high=1., size=(obs.shape[0], obs_size))
+                    # obs[:, :obs_size] += noise
                 episode = {
                     'obs': obs,
                     'action': data['ctrl'].astype(np.float32)
