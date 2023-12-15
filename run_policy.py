@@ -260,7 +260,7 @@ class DiffusionController(NodeParameterMixin,
         action_to_execute = self.env.get_from_queue_actions()
         action_to_execute = action_to_execute.ravel()
         dx = action_to_execute[0:3]
-        dq_rot = action_to_execute[3:7]
+        dq_rot = quat.from_float_array(action_to_execute[3:7])
 
         J = np.array(self.kdl.compute_jacobian(jnts_obs))
         dq, *_ = np.linalg.lstsq(J, np.concatenate([dx, quat.as_rotation_vector(dq_rot)]))
