@@ -4,6 +4,8 @@ Training:
 python train.py --config-name=train_diffusion_lowdim_workspace
 """
 import queue
+import os
+import os.path as osp
 import sys
 
 import click
@@ -59,8 +61,7 @@ class EnvControlWrapper:
         self.action_space = gym.spaces.Box(
             -8, 8, shape=(7,), dtype=np.float32)  # TODO
         self._jpc_pub = jpc_pub
-        # self.init_pos = np.load(osp.join(osp.dirname(__file__), 'init_joint_pos.npy'))
-        self.init_pos = np.zeros(7)  # TODO
+        self.init_pos = np.load(osp.join(osp.dirname(__file__), 'init_joint_pos.npy'))
         self._jstate = None
 
         self.n_obs_steps = n_obs_steps
@@ -73,13 +74,13 @@ class EnvControlWrapper:
 
     def reset(self):
         # TODO: handle reset properly
-        self.jpc_send_goal(self.init_pos)
-        target_goal = self.init_pos
-        obs, *_ = self.step(target_goal)
+        #self.jpc_send_goal(self.init_pos)
+        init_pos = self.init_pos
+        obs, *_ = self.step(init_pos)
         return obs
 
     def _compute_obs(self):
-        jnts = np.array(self._jstate[:7])
+        jnts = np.array(self._jstate.position[:7])
         return jnts
 
     def get_obs(self):
@@ -157,6 +158,7 @@ class EnvControlWrapper:
         msg = Float64MultiArray()
         msg.layout.dim = [MultiArrayDimension(size=7, stride=1)]
         msg.data = list(jpos)
+        print("goal sent", list(jpos))
         self._jpc_pub.publish(msg)
 
 class DiffusionController(NodeParameterMixin,
@@ -213,14 +215,14 @@ class DiffusionController(NodeParameterMixin,
         if jnts_obs is None:
             return
 
-        delta = 1.0
+        delta = 10
         time_now = self.get_clock().now()
         if self.start_time is None:
             self.start_time = time_now
         dt = (time_now - self.start_time).nanoseconds / 1e9
         if dt <= delta:
-            print("in reset", dt)
             self.stacked_obs = self.env.reset()
+            return
 
         if self.current_command is None:
             self.current_command = jnts_obs
@@ -233,9 +235,7 @@ class DiffusionController(NodeParameterMixin,
         # jac
         # cur_pos = se3(*self.kdl.compute_fk(jnts_obs))
 
-        # J = np.array(self.kdl.compute_jacobian(jnts_obs))
 
-        # dq, *_ = np.linalg.lstsq(J, np.concatenate([dx, quat.as_rotation_vector(dq)]))
         if self.env.queue_actions.empty():
             with torch.no_grad():
                 np_obs_dict = {
@@ -253,10 +253,13 @@ class DiffusionController(NodeParameterMixin,
                 array_dq = action.reshape(*action.shape[1:])
 
                 self.env.push_actions([_dq for _dq in array_dq])
+                # self.env.push_actions([array_dq[0]])
 
         # self.publish_dq(dq)
 
         dq = self.env.get_from_queue_dq()
+        #J = np.array(self.kdl.compute_jacobian(jnts_obs))
+        #dq, *_ = np.linalg.lstsq(J, np.concatenate([dx, quat.as_rotation_vector(dq)]))
 
         if np.max(np.abs(dq)) < 1e-2:
             return
@@ -265,7 +268,7 @@ class DiffusionController(NodeParameterMixin,
 
         self.get_logger().info(str(self.current_command - jnts_obs))
 
-        self.stacked_obs = self.env.step(self.current_command)
+        self.stacked_obs, *_ = self.env.step(self.current_command)
 
 @hydra.main(
     version_base=None,
@@ -279,6 +282,7 @@ def main(cfg, args=None):
     workspace.load_checkpoint()
     workspace.model.eval()
     workspace.model.cuda()
+    print(workspace.model.normalizer["obs"].params_dict["offset"])
 
     workspace.model = torch.compile(workspace.model).cuda()
 
