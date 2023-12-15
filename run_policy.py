@@ -126,7 +126,7 @@ class EnvControlWrapper:
             result[:start_idx] = result[start_idx]
         return result
 
-    def get_from_queue_dq(self):
+    def get_from_queue_actions(self):
         if self.queue_actions.empty():
             raise ValueError("Queue actions should not be empty when calling step")
 
@@ -257,9 +257,13 @@ class DiffusionController(NodeParameterMixin,
 
         # self.publish_dq(dq)
 
-        dq = self.env.get_from_queue_dq()
-        #J = np.array(self.kdl.compute_jacobian(jnts_obs))
-        #dq, *_ = np.linalg.lstsq(J, np.concatenate([dx, quat.as_rotation_vector(dq)]))
+        action_to_execute = self.env.get_from_queue_actions()
+        action_to_execute = action_to_execute.ravel()
+        dx = action_to_execute[0:3]
+        dq_rot = action_to_execute[3:7]
+
+        J = np.array(self.kdl.compute_jacobian(jnts_obs))
+        dq, *_ = np.linalg.lstsq(J, np.concatenate([dx, quat.as_rotation_vector(dq_rot)]))
 
         if np.max(np.abs(dq)) < 1e-2:
             return
