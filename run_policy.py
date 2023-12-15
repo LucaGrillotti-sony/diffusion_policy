@@ -17,6 +17,7 @@ from diffusion_policy.common.pytorch_util import dict_apply
 from diffusion_policy.env_runner.real_robot_runner import RealRobot
 from diffusion_policy.workspace.train_diffusion_transformer_lowdim_workspace import \
     TrainDiffusionTransformerLowdimWorkspace
+from diffusion_policy.workspace.train_diffusion_unet_lowdim_workspace import TrainDiffusionUnetLowdimWorkspace
 
 # use line-buffering for both stdout and stderr
 sys.stdout = open(sys.stdout.fileno(), mode='w', buffering=1)
@@ -282,7 +283,7 @@ class DiffusionController(NodeParameterMixin,
 def main(cfg, args=None):
     OmegaConf.resolve(cfg)
 
-    workspace: BaseWorkspace = TrainDiffusionTransformerLowdimWorkspace(cfg)
+    workspace: BaseWorkspace = TrainDiffusionUnetLowdimWorkspace(cfg)
     workspace.load_checkpoint()
     workspace.model.eval()
     workspace.model.cuda()
@@ -294,7 +295,7 @@ def main(cfg, args=None):
     try:
         nodes = [
             DiffusionController(policy=workspace.model,
-                                n_obs_steps=4,
+                                n_obs_steps=2,  # TODO: fix magic constants
                                 n_action_steps=8,
                                 ),
         ]
