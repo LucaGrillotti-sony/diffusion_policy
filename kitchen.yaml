@@ -1,4 +1,4 @@
-_target_: diffusion_policy.workspace.train_diffusion_transformer_lowdim_workspace.TrainDiffusionTransformerLowdimWorkspace
+_target_: diffusion_policy.workspace.train_diffusion_unet_lowdim_workspace.TrainDiffusionUnetLowdimWorkspace
 action_dim: 9
 checkpoint:
   save_last_ckpt: true
@@ -28,51 +28,51 @@ logging:
   group: null
   id: null
   mode: online
-  name: 2023.01.27-17.53.15_train_diffusion_transformer_lowdim_kitchen_lowdim
+  name: 2023.01.27-17.53.15_train_diffusion_unet_lowdim_kitchen_lowdim
   project: diffusion_policy_debug
   resume: true
   tags:
-  - train_diffusion_transformer_lowdim
+  - train_diffusion_unet_lowdim
   - kitchen_lowdim
   - default
 multi_run:
-  run_dir: data/outputs/2023.01.27/17.53.15_train_diffusion_transformer_lowdim_kitchen_lowdim
-  wandb_name_base: 2023.01.27-17.53.15_train_diffusion_transformer_lowdim_kitchen_lowdim
-n_action_steps: 8
+  run_dir: data/outputs/2023.01.27/17.53.15_train_diffusion_unet_lowdim_kitchen_lowdim
+  wandb_name_base: 2023.01.27-17.53.15_train_diffusion_unet_lowdim_kitchen_lowdim
+n_action_steps: 6
 n_latency_steps: 0
-n_obs_steps: 4
-name: train_diffusion_transformer_lowdim
-obs_as_cond: true
+n_obs_steps: 2
+name: train_diffusion_unet_lowdim
+obs_as_global_cond: true
+obs_as_local_cond: false
 obs_dim: 9
 optimizer:
+  _target_: torch.optim.AdamW
   betas:
-  - 0.9
   - 0.95
-  learning_rate: 0.0001
-  weight_decay: 0.001
+  - 0.999
+  eps: 1.0e-08
+  lr: 0.0001
+  weight_decay: 1.0e-06
 past_action_visible: false
 policy:
-  _target_: diffusion_policy.policy.diffusion_transformer_lowdim_policy.DiffusionTransformerLowdimPolicy
+  _target_: diffusion_policy.policy.diffusion_unet_lowdim_policy.DiffusionUnetLowdimPolicy
   action_dim: 9
   horizon: 16
   model:
-    _target_: diffusion_policy.model.diffusion.transformer_for_diffusion.TransformerForDiffusion
-    causal_attn: true
-    cond_dim: 9
-    horizon: 16
+    _target_: diffusion_policy.model.diffusion.conditional_unet1d.ConditionalUnet1D
+    cond_predict_scale: true
+    diffusion_step_embed_dim: 256
+    down_dims:
+    - 256
+    - 512
+    - 1024
+    global_cond_dim: 18
     input_dim: 9
-    n_cond_layers: 0
-    n_emb: 768
-    n_head: 4
-    n_layer: 8
-    n_obs_steps: 4
-    obs_as_cond: true
-    output_dim: 9
-    p_drop_attn: 0.1
-    p_drop_emb: 0.0
-    time_as_cond: true
-  n_action_steps: 8
-  n_obs_steps: 4
+    kernel_size: 5
+    local_cond_dim: null
+    n_groups: 8
+  n_action_steps: 6
+  n_obs_steps: 2
   noise_scheduler:
     _target_: diffusers.schedulers.scheduling_ddpm.DDPMScheduler
     beta_end: 0.02
@@ -83,7 +83,8 @@ policy:
     prediction_type: epsilon
     variance_type: fixed_small
   num_inference_steps: 100
-  obs_as_cond: true
+  obs_as_global_cond: true
+  obs_as_local_cond: false
   obs_dim: 9
   pred_action_steps_only: false
 pred_action_steps_only: false
@@ -106,9 +107,9 @@ task:
     dataset_dir: data/kitchen
     fps: 12.5
     max_steps: 280
-    n_action_steps: 8
+    n_action_steps: 6
     n_envs: null
-    n_obs_steps: 4
+    n_obs_steps: 2
     n_test: 50
     n_test_vis: 4
     n_train: 6
@@ -131,7 +132,7 @@ training:
   device: cuda:0
   gradient_accumulate_every: 1
   lr_scheduler: cosine
-  lr_warmup_steps: 1000
+  lr_warmup_steps: 500
   max_train_steps: null
   max_val_steps: null
   num_epochs: 5000
