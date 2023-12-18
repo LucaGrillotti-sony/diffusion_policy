@@ -81,13 +81,14 @@ class KitchenLowdimRunner(BaseLowdimRunner):
                 max_episode_steps=max_steps
             )
         print("test?")
-        print(pathlib.Path(dataset_dir) / "qpos.npy")
-        init_qpos = np.load(pathlib.Path(dataset_dir) / "qpos.npy")[0]
+        print(pathlib.Path(dataset_dir) / "all_init_qpos.npy")
+        init_qpos = np.load(pathlib.Path(dataset_dir) / "all_init_qpos.npy")[0]
         all_init_qpos = np.asarray([init_qpos for _ in range(50)])
 
-        init_qvel = np.load(pathlib.Path(dataset_dir) / "qvel.npy")[0]
+        init_qvel = np.load(pathlib.Path(dataset_dir) / "all_init_qvel.npy")[0]
         all_init_qvel = np.asarray([init_qpos for _ in range(50)])
         module_logger.info(f'Loaded {len(all_init_qpos)} known initial conditions.')
+        print("IN INIT", init_qpos.shape, init_qvel.shape)
         print("test?1")
 
         env_fns = [env_fn] * n_envs
@@ -120,8 +121,8 @@ class KitchenLowdimRunner(BaseLowdimRunner):
 
                 # set initial condition
                 assert isinstance(env.env.env, KitchenLowdimWrapper)
-                env.env.env.init_qpos = init_qpos
-                env.env.env.init_qvel = init_qvel
+                env.env.env.init_qpos = init_qpos[..., :9]
+                env.env.env.init_qvel = init_qvel[..., :9]
             
             env_seeds.append(seed)
             env_prefixs.append('train/')
@@ -153,8 +154,8 @@ class KitchenLowdimRunner(BaseLowdimRunner):
 
                 # set initial condition
                 assert isinstance(env.env.env, KitchenLowdimWrapper)
-                env.env.env.init_qpos = init_qpos
-                env.env.env.init_qvel = init_qvel
+                env.env.env.init_qpos = init_qpos[..., :9]
+                env.env.env.init_qvel = init_qvel[..., :9]
 
                 # set seed
                 assert isinstance(env, MultiStepWrapper)
@@ -237,8 +238,8 @@ class KitchenLowdimRunner(BaseLowdimRunner):
 
             # start rollout
             obs = env.reset()
-            initial_times = np.zeros((*obs.shape[:2], 1))
-            obs = np.concatenate([obs, initial_times], axis=2)
+            # initial_times = np.zeros((*obs.shape[:2], 1))
+            # obs = np.concatenate([obs, initial_times], axis=2)
             print("SHAPES", obs.shape)
             past_action = None
             policy.reset()
@@ -273,14 +274,14 @@ class KitchenLowdimRunner(BaseLowdimRunner):
                 # step env
                 obs, reward, done, info = env.step(action)
 
-                times = np.asarray([
-                    info_row["time"]
-                    for info_row in info
-                ])
-
-                times = times.reshape((*obs.shape[:2], 1))
-
-                obs = np.concatenate([obs, times], axis=2)
+                # times = np.asarray([
+                #     info_row["time"]
+                #     for info_row in info
+                # ])
+                #
+                # times = times.reshape((*obs.shape[:2], 1))
+                #
+                # obs = np.concatenate([obs, times], axis=2)
                 done = np.all(done)
                 past_action = action
 

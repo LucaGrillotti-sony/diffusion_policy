@@ -27,7 +27,7 @@ keypoint_visible_rate: 1.0
 logging:
   group: null
   id: null
-  mode: disabled
+  mode: online
   name: 2023.01.27-17.53.15_train_diffusion_transformer_lowdim_kitchen_lowdim
   project: diffusion_policy_debug
   resume: true

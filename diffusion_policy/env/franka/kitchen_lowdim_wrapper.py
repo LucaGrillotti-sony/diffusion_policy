@@ -30,8 +30,11 @@ class KitchenLowdimWrapper(gym.Env):
     def reset(self):
         if self.init_qpos is not None:
             # reset anyway to be safe, not very expensive
+            print("qpos qvel 1", self.init_qpos.shape, self.init_qvel.shape)
+
             _ = self.env.reset()
             # start from known state
+            print("qpos qvel 2", self.init_qpos.shape, self.init_qvel.shape)
             self.env.set_state(self.init_qpos, self.init_qvel)
             obs = self.env._get_obs()
             return obs
@@ -39,7 +42,10 @@ class KitchenLowdimWrapper(gym.Env):
             #     self.action_space.sample()))
             # return obs
         else:
-            return self.env.reset()
+            print("qpos qvel reset 1", self.init_qpos, self.init_qvel)
+            x = self.env.reset()
+            print("qpos qvel reset 2", self.init_qpos.shape, self.init_qvel.shape)
+            return x
 
     def render(self, mode='rgb_array'):
         h, w = self.render_hw
