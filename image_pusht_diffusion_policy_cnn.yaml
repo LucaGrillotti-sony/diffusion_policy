@@ -39,7 +39,7 @@ logging:
 multi_run:
   run_dir: data/outputs/2023.02.25/03.06.09_train_diffusion_unet_lowdim_kitchen_lowdim
   wandb_name_base: 2023.02.25-03.06.09_train_diffusion_unet_lowdim_kitchen_lowdim
-n_action_steps: 8
+n_action_steps: 6
 n_latency_steps: 0
 n_obs_steps: 2
 name: train_diffusion_unet_lowdim
@@ -72,7 +72,7 @@ policy:
     kernel_size: 5
     local_cond_dim: null
     n_groups: 8
-  n_action_steps: 8
+  n_action_steps: 6
   n_obs_steps: 2
   noise_scheduler:
     _target_: diffusers.schedulers.scheduling_ddpm.DDPMScheduler
