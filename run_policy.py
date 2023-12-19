@@ -216,7 +216,7 @@ class DiffusionController(NodeParameterMixin,
         if jnts_obs is None:
             return
 
-        delta = 10
+        delta = 5
         time_now = self.get_clock().now()
         if self.start_time is None:
             self.start_time = time_now
@@ -234,6 +234,8 @@ class DiffusionController(NodeParameterMixin,
         # self.publish_cartesian_commands(dx, dq)
 
         # jac
+        pos_x, pos_q = self.kdl.compute_fk(jnts_obs)
+
         # cur_pos = se3(*self.kdl.compute_fk(jnts_obs))
 
 
@@ -260,8 +262,13 @@ class DiffusionController(NodeParameterMixin,
 
         action_to_execute = self.env.get_from_queue_actions()
         action_to_execute = action_to_execute.ravel()
-        dx = action_to_execute[0:3]
-        dq_rot = quat.from_float_array(action_to_execute[3:7])
+        new_pos_x = action_to_execute[0:3]
+        new_pos_q = action_to_execute[3:7]
+        new_pos_q = new_pos_q / np.linalg.norm(new_pos_q)
+        new_pos_q = quat.from_float_array(new_pos_q)
+
+        dx = new_pos_x - pos_x
+        dq_rot = new_pos_q / pos_q
 
         J = np.array(self.kdl.compute_jacobian(jnts_obs))
         dq, *_ = np.linalg.lstsq(J, np.concatenate([dx, quat.as_rotation_vector(dq_rot)]))
