@@ -7,6 +7,7 @@ import queue
 import os
 import os.path as osp
 import sys
+import dill
 
 import click
 import gym
@@ -159,7 +160,6 @@ class EnvControlWrapper:
         msg = Float64MultiArray()
         msg.layout.dim = [MultiArrayDimension(size=7, stride=1)]
         msg.data = list(jpos)
-        print("goal sent", list(jpos))
         self._jpc_pub.publish(msg)
 
 class DiffusionController(NodeParameterMixin,
@@ -196,9 +196,10 @@ class DiffusionController(NodeParameterMixin,
         self.policy.eval().cuda()
         self.policy.reset()
 
+        # self.policy.num_inference_steps = 16
+
         self.stacked_obs = None
 
-        self.reset_counter = 20
         self.start_time = None
 
         # joint states sub
@@ -209,7 +210,7 @@ class DiffusionController(NodeParameterMixin,
         msg = Float64MultiArray()
         msg.layout.dim = [MultiArrayDimension(size=7, stride=1)]
         msg.data = list(jpos)
-        self.jpc_pub.publish(msg)
+        #self.jpc_pub.publish(msg)
 
     def policy_cb(self):
         jnts_obs = self.env.get_obs()
@@ -240,9 +241,11 @@ class DiffusionController(NodeParameterMixin,
 
 
         if self.env.queue_actions.empty():
+            self.get_logger().info("Adding actions to buffer")
             with torch.no_grad():
+                stacked_obs = self.stacked_obs.reshape(1, *self.stacked_obs.shape)
                 np_obs_dict = {
-                    'obs': self.stacked_obs.astype(np.float32)
+                    'obs': stacked_obs.astype(np.float32)
                 }
 
                 # device transfer
@@ -262,39 +265,46 @@ class DiffusionController(NodeParameterMixin,
 
         action_to_execute = self.env.get_from_queue_actions()
         action_to_execute = action_to_execute.ravel()
-        new_pos_x = action_to_execute[0:3]
-        new_pos_q = action_to_execute[3:7]
-        new_pos_q = new_pos_q / np.linalg.norm(new_pos_q)
-        new_pos_q = quat.from_float_array(new_pos_q)
+        dq = action_to_execute - jnts_obs
 
-        dx = new_pos_x - pos_x
-        dq_rot = new_pos_q / pos_q
+        #new_pos_x = action_to_execute[0:3]
+        #new_pos_q = action_to_execute[3:7].ravel()
+        #new_pos_q = new_pos_q / np.linalg.norm(new_pos_q)
+        #new_pos_q = quat.from_float_array(new_pos_q)
 
-        J = np.array(self.kdl.compute_jacobian(jnts_obs))
-        dq, *_ = np.linalg.lstsq(J, np.concatenate([dx, quat.as_rotation_vector(dq_rot)]))
+        #dx = new_pos_x - pos_x
+        #dq_rot = (new_pos_q / quat.from_float_array(pos_q))
+        #self.get_logger().info(str(f"target new pos q: {new_pos_q}"))
+        #self.get_logger().info(str(("Predicted actions: ", dx, dq_rot)))
+
+        #J = np.array(self.kdl.compute_jacobian(jnts_obs))
+        #dq, *_ = np.linalg.lstsq(J, np.concatenate([dx, quat.as_rotation_vector(dq_rot)]))
 
         if np.max(np.abs(dq)) < 1e-2:
             return
 
-        self.current_command = (0.3 * self.current_command + 0.7 * jnts_obs) + dq
+        #self.current_command = (0.3 * self.current_command + 0.7 * jnts_obs) + dq
+        self.current_command = dq + jnts_obs
 
         self.get_logger().info(str(self.current_command - jnts_obs))
 
         self.stacked_obs, *_ = self.env.step(self.current_command)
 
-@hydra.main(
-    version_base=None,
-    config_path=str(pathlib.Path(__file__).parent.joinpath(
-        'diffusion_policy','config'))
-)
-def main(cfg, args=None):
-    OmegaConf.resolve(cfg)
+def main(args=None):
+    ckpt_path = "/home/ros/humble/src/diffusion_policy/results/18.37.05_train_diffusion_unet_lowdim_kitchen_lowdim/checkpoints/latest.ckpt"
+    
+    payload = torch.load(open(ckpt_path, 'rb'), pickle_module=dill)
+    cfg = payload['cfg']
+    cls = hydra.utils.get_class(cfg._target_)
+    workspace = cls(cfg)
+    workspace: BaseWorkspace
+    workspace.load_payload(payload, exclude_keys=None, include_keys=None)
 
-    workspace: BaseWorkspace = TrainDiffusionUnetLowdimWorkspace(cfg)
-    workspace.load_checkpoint()
-    workspace.model.eval()
-    workspace.model.cuda()
-    print(workspace.model.normalizer["obs"].params_dict["offset"])
+    # workspace: BaseWorkspace = TrainDiffusionUnetLowdimWorkspace(cfg)
+    # workspace.load_checkpoint()
+    # workspace.model.eval()
+    # workspace.model.cuda()
+    # print(workspace.model.normalizer["obs"].params_dict["offset"])
 
     workspace.model = torch.compile(workspace.model).cuda()
 
@@ -303,7 +313,7 @@ def main(cfg, args=None):
         nodes = [
             DiffusionController(policy=workspace.model,
                                 n_obs_steps=2,  # TODO: fix magic constants
-                                n_action_steps=8,
+                                n_action_steps=6,
                                 ),
         ]
 
