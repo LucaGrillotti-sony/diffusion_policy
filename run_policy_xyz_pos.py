@@ -59,9 +59,9 @@ import copy
 class EnvControlWrapper:
     def __init__(self, jpc_pub, n_obs_steps, n_action_steps):
         self.observation_space = gym.spaces.Box(
-            -8, 8, shape=(7,), dtype=np.float32)  # TODO
+            -8, 8, shape=(3,), dtype=np.float32)  # TODO
         self.action_space = gym.spaces.Box(
-            -8, 8, shape=(7,), dtype=np.float32)  # TODO
+            -8, 8, shape=(3,), dtype=np.float32)  # TODO
         self._jpc_pub = jpc_pub
         self.init_pos = np.load(osp.join(osp.dirname(__file__), 'init_joint_pos.npy'))
         self._jstate = None
@@ -82,7 +82,7 @@ class EnvControlWrapper:
         return obs
 
     def _compute_obs(self):
-        jnts = np.array(self._jstate.position[:7])
+        jnts = np.array(self._jstate.position[:3])
         return jnts
 
     def get_obs(self):
@@ -256,42 +256,43 @@ class DiffusionController(NodeParameterMixin,
                                             lambda x: x.detach().to('cpu').numpy())
 
                 action = np_action_dict['action']
-                array_dq = action.reshape(*action.shape[1:])
+                array_xyz = action.reshape(*action.shape[1:])
 
-                self.env.push_actions([_dq for _dq in array_dq])
+                self.env.push_actions([xyz_pos for xyz_pos in array_xyz])
                 # self.env.push_actions([array_dq[0]])
 
         # self.publish_dq(dq)
 
-        action_to_execute = self.env.get_from_queue_actions()
-        action_to_execute = action_to_execute.ravel()
-        dq = action_to_execute - jnts_obs
+        xyz_target = self.env.get_from_queue_actions()
+        xyz_target = xyz_target.ravel()
+        # dq = xyz_target - jnts_obs
 
-        #new_pos_x = action_to_execute[0:3]
-        #new_pos_q = action_to_execute[3:7].ravel()
-        #new_pos_q = new_pos_q / np.linalg.norm(new_pos_q)
-        #new_pos_q = quat.from_float_array(new_pos_q)
+        new_pos_x = xyz_target[0:3]
+        new_pos_q = np.asarray([0., 1., 0., 0.])  # Fixed orientation here
+        new_pos_q = new_pos_q / np.linalg.norm(new_pos_q)
+        new_pos_q = quat.from_float_array(new_pos_q)
 
-        #dx = new_pos_x - pos_x
-        #dq_rot = (new_pos_q / quat.from_float_array(pos_q))
+        dx = new_pos_x - pos_x
+        dq_rot = (new_pos_q / quat.from_float_array(pos_q))
         #self.get_logger().info(str(f"target new pos q: {new_pos_q}"))
         #self.get_logger().info(str(("Predicted actions: ", dx, dq_rot)))
 
-        #J = np.array(self.kdl.compute_jacobian(jnts_obs))
-        #dq, *_ = np.linalg.lstsq(J, np.concatenate([dx, quat.as_rotation_vector(dq_rot)]))
+        J = np.array(self.kdl.compute_jacobian(jnts_obs))
+        dq, *_ = np.linalg.lstsq(J, np.concatenate([dx, quat.as_rotation_vector(dq_rot)]))
 
         if np.max(np.abs(dq)) < 1e-2:
             return
 
-        #self.current_command = (0.3 * self.current_command + 0.7 * jnts_obs) + dq
-        self.current_command = dq + jnts_obs
+        self.current_command = (0.3 * self.current_command + 0.7 * jnts_obs) + dq
+        # self.current_command = dq + jnts_obs
 
         self.get_logger().info(str(self.current_command - jnts_obs))
 
         self.stacked_obs, *_ = self.env.step(self.current_command)
 
+
 def main(args=None):
-    ckpt_path = "/home/ros/humble/src/diffusion_policy/results/18.37.05_train_diffusion_unet_lowdim_kitchen_lowdim/checkpoints/latest.ckpt"
+    ckpt_path = "/home/ros/humble/src/diffusion_policy/results/12.20_18.19.04_xyz/checkpoints/latest.ckpt"
     
     payload = torch.load(open(ckpt_path, 'rb'), pickle_module=dill)
     cfg = payload['cfg']
