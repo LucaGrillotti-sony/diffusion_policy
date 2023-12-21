@@ -289,7 +289,7 @@ class DiffusionController(NodeParameterMixin,
         self.stacked_obs, *_ = self.env.step(self.current_command)
 
 def main(args=None):
-    ckpt_path = "/home/ros/humble/src/diffusion_policy/results/18.37.05_train_diffusion_unet_lowdim_kitchen_lowdim/checkpoints/latest.ckpt"
+    ckpt_path = "/home/ros/humble/src/diffusion_policy/results/12.21_12.11.57_end_effector_control/checkpoints/latest.ckpt"
     
     payload = torch.load(open(ckpt_path, 'rb'), pickle_module=dill)
     cfg = payload['cfg']
