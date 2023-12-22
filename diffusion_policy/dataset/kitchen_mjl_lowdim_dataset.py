@@ -21,7 +21,9 @@ class KitchenCustomDataset(BaseLowdimDataset):
             abs_action=True,
             robot_noise_ratio=0.0,
             seed=42,
-            val_ratio=0.0
+            val_ratio=0.0,
+            use_xyz=False,
+            use_end_effector=True,
         ):
         super().__init__()
 
@@ -31,13 +33,21 @@ class KitchenCustomDataset(BaseLowdimDataset):
         robot_pos_noise_amp = np.array([0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1], dtype=np.float32)
         rng = np.random.default_rng(seed=seed)
 
-        obs_size = 7
 
         data_directory = pathlib.Path(dataset_dir)
 
         self.replay_buffer = ReplayBuffer.create_empty_numpy()
 
-        CARTESIAN_CONTROL_PATH = "cartesian_control_with_time.npy"
+        if not use_xyz and not use_end_effector:
+            CARTESIAN_CONTROL_PATH = "all_joint_poses_with_time.npy"
+            obs_size = 7
+        elif not use_xyz and use_end_effector:
+            CARTESIAN_CONTROL_PATH = "end_effector_poses_with_time.npy"
+            obs_size = 7
+        else:
+            assert use_cartesian_control
+            CARTESIAN_CONTROL_PATH = "end_effector_poses_xyz_with_time.npy"
+            obs_size = 3
         OBS_DATA_PATH = "obs_with_time.npy"
 
         results_list = list(data_directory.glob(f'*/{CARTESIAN_CONTROL_PATH}'))
@@ -48,6 +58,7 @@ class KitchenCustomDataset(BaseLowdimDataset):
         for i, np_path in enumerate(tqdm(results_list)):
             try:
                 cartesian_control_with_time = np.load(np_path.absolute())
+                print("length trajectory", cartesian_control_with_time.shape[0])
                 cartesian_control = cartesian_control_with_time[:, 1:]
                 _res_folder = np_path.parents[0]
                 obs_path = _res_folder / OBS_DATA_PATH
@@ -56,13 +67,19 @@ class KitchenCustomDataset(BaseLowdimDataset):
 
                 assert obs.shape[1] == 9
                 obs = obs[:, :obs_size]  # TODO remove this line and do this in preprocessing
-                for _ in range(NUMBER_REPEAT_OBS_WITH_NOISE):
-                    obs_with_noise = obs + robot_pos_noise_amp * rng.uniform(low=-1., high=1., size=obs.shape)
-                    episode = {
-                        'obs': obs_with_noise.astype(np.float32),
-                        'action': cartesian_control.astype(np.float32)
-                    }
-                    self.replay_buffer.add_episode(episode)
+                # for _ in range(NUMBER_REPEAT_OBS_WITH_NOISE):
+                #     obs_with_noise = obs + robot_pos_noise_amp * rng.uniform(low=-1., high=1., size=obs.shape)
+                #     episode = {
+                #         'obs': obs_with_noise.astype(np.float32),
+                #         'action': cartesian_control.astype(np.float32)
+                #     }
+                #     self.replay_buffer.add_episode(episode)
+
+                episode = {
+                    'obs': obs.astype(np.float32),
+                    'action': cartesian_control.astype(np.float32)
+                }
+                self.replay_buffer.add_episode(episode)
             except Exception as e:
                 print(i, e)
 
