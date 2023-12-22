@@ -103,6 +103,8 @@ task:
     robot_noise_ratio: 0.1
     seed: 42
     val_ratio: 0.02
+    use_xyz: false
+    use_end_effector: false
   env_runner:
     _target_: diffusion_policy.env_runner.real_robot_runner.DummyRobot
 #    abs_action: true

@@ -82,7 +82,7 @@ class EnvControlWrapper:
         return obs
 
     def _compute_obs(self):
-        jnts = np.array(self._jstate.position[:3])
+        jnts = np.array(self._jstate.position[:7])
         return jnts
 
     def get_obs(self):

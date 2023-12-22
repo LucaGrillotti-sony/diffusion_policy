@@ -1,5 +1,5 @@
 _target_: diffusion_policy.workspace.train_diffusion_unet_lowdim_workspace.TrainDiffusionUnetLowdimWorkspace
-action_dim: 3
+action_dim: 7
 checkpoint:
   save_last_ckpt: true
   save_last_snapshot: false
@@ -45,7 +45,7 @@ n_obs_steps: 2
 name: train_diffusion_unet_lowdim
 obs_as_global_cond: true
 obs_as_local_cond: false
-obs_dim: 3
+obs_dim: 7
 optimizer:
   _target_: torch.optim.AdamW
   betas:
@@ -57,7 +57,7 @@ optimizer:
 past_action_visible: false
 policy:
   _target_: diffusion_policy.policy.diffusion_unet_lowdim_policy.DiffusionUnetLowdimPolicy
-  action_dim: 3
+  action_dim: 7
   horizon: 16
   model:
     _target_: diffusion_policy.model.diffusion.conditional_unet1d.ConditionalUnet1D
@@ -67,32 +67,35 @@ policy:
     - 256
     - 512
     - 1024
-    global_cond_dim: 6
-    input_dim: 3
+    global_cond_dim: 14
+    input_dim: 7
     kernel_size: 5
     local_cond_dim: null
     n_groups: 8
   n_action_steps: 6
   n_obs_steps: 2
   noise_scheduler:
-    _target_: diffusers.schedulers.scheduling_ddpm.DDPMScheduler
-    beta_end: 0.02
-    beta_schedule: squaredcos_cap_v2
-    beta_start: 0.0001
-    clip_sample: true
+    _target_: diffusers.schedulers.scheduling_ddim.DDIMScheduler
     num_train_timesteps: 100
-    prediction_type: epsilon
-    variance_type: fixed_small
+    beta_start: 0.0001
+    beta_end: 0.02
+    # beta_schedule is important
+    # this is the best we found
+    beta_schedule: squaredcos_cap_v2
+    clip_sample: True
+    set_alpha_to_one: True
+    steps_offset: 0
+    prediction_type: epsilon # or sample
   num_inference_steps: 100
   oa_step_convention: true
   obs_as_global_cond: true
   obs_as_local_cond: false
-  obs_dim: 3
+  obs_dim: 7
   pred_action_steps_only: false
 pred_action_steps_only: false
 task:
   abs_action: true
-  action_dim: 3
+  action_dim: 7
   dataset:
     _target_: diffusion_policy.dataset.kitchen_mjl_lowdim_dataset.KitchenCustomDataset
     abs_action: true
@@ -103,7 +106,8 @@ task:
     robot_noise_ratio: 0.1
     seed: 42
     val_ratio: 0.02
-    use_xyz: true
+    use_xyz: false
+    use_end_effector: true
   env_runner:
     _target_: diffusion_policy.env_runner.real_robot_runner.DummyRobot
 #    abs_action: true
@@ -126,7 +130,7 @@ task:
 #    train_start_seed: 0
   keypoint_dim: 3
   name: kitchen_lowdim
-  obs_dim: 3
+  obs_dim: 7
   robot_noise_ratio: 0.1
 task_name: kitchen_lowdim
 training:
