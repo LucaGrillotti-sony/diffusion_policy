@@ -56,7 +56,7 @@ def get_dataset(dataset_dir):
 
     data_directory = pathlib.Path(dataset_dir)
 
-    CARTESIAN_CONTROL_PATH = "cartesian_control_with_time.npy"
+    CARTESIAN_CONTROL_PATH = "end_effector_poses_with_time.npy"
     OBS_DATA_PATH = "obs_with_time.npy"
 
     results_list = list(data_directory.glob(f'*/{CARTESIAN_CONTROL_PATH}'))
@@ -88,8 +88,11 @@ def get_dataset(dataset_dir):
 
 
 def main():
-    ckpt_path = "/home/lucagrillotti/ros/humble/src/diffusion_policy/results/17.05.32_train_diffusion_unet_lowdim_kitchen_lowdim/checkpoints/latest.ckpt"
-    dataset_dir = "/data/kitchen/kitchen_demos_multitask/cartesian_control/"
+    # ckpt_path = "/home/lucagrillotti/ros/humble/src/diffusion_policy/results/13.09.31_train_diffusion_unet_lowdim_kitchen_lowdim/checkpoints/latest.ckpt"
+    # ckpt_path = "/home/lucagrillotti/projects/diffusion_policy/data/outputs/2023.12.21/12.21_12.11.57_end_effector_control/checkpoints/latest.ckpt"
+    ckpt_path = "/home/lucagrillotti/projects/diffusion_policy/data/outputs/2023.12.22/17.22.09_train_diffusion_unet_lowdim_kitchen_lowdim/checkpoints/latest.ckpt"
+    # dataset_dir = "/data/kitchen/kitchen_demos_multitask/cartesian_control/"
+    dataset_dir = "/home/lucagrillotti/projects/diffusion_policy/data/kitchen/kitchen_demos_multitask/cartesian_control_all"
 
     payload = torch.load(open(ckpt_path, 'rb'), pickle_module=dill)
     cfg = payload['cfg']
@@ -98,6 +101,7 @@ def main():
     workspace: BaseWorkspace
     workspace.load_payload(payload, exclude_keys=None, include_keys=None)
     policy = workspace.model
+    policy.num_inference_steps = 16
 
     list_episodes = get_dataset(dataset_dir)
     one_episode = list_episodes[0]
@@ -106,7 +110,7 @@ def main():
     sequence_actions = one_episode["action"]
     sequence_times = one_episode["time"]
 
-    n_action_steps = 8
+    n_action_steps = 6
     n_latency_steps = 0
     n_obs_steps = 2
 
@@ -129,6 +133,12 @@ def main():
         stacked_obs = sequence_observations[index_start - n_obs_steps + 1:index_start + 1]
         times = sequence_times[index_start:index_start + n_action_steps]
 
+        # if 21 > times[0] or times[0] > 22:
+        #     continue
+        #
+        if len(times) < n_action_steps:
+            continue
+
         with torch.no_grad():
             np_obs_dict = {
                 'obs': stacked_obs.reshape(1, *stacked_obs.shape).astype(np.float32)
@@ -146,8 +156,9 @@ def main():
         for index_action, c in enumerate(color):
             # plt.plot(sequence_times, sequence_actions[:, index_action], c=c)
             # plt.plot(times, stacked_true_actions[:, index_action], c=c)
-            plt.plot(times, predicted_actions[:, index_action], c=c, linestyle="dotted")
-
+            plt.plot(times, predicted_actions[:, index_action], c=c, linestyle="dotted")  # TODO: uncomment
+            # plt.scatter(times, predicted_actions[:, index_action], color=c,s=0.4)
+            # plt.plot(times, times, c=c)
     plt.show()
 
 if __name__ == '__main__':
