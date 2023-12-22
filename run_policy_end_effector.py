@@ -63,7 +63,11 @@ class EnvControlWrapper:
         self.action_space = gym.spaces.Box(
             -8, 8, shape=(7,), dtype=np.float32)  # TODO
         self._jpc_pub = jpc_pub
-        self.init_pos = np.load(osp.join(osp.dirname(__file__), 'init_joint_pos.npy'))
+        #self.init_pos = np.load(osp.join(osp.dirname(__file__), 'init_joint_pos.npy'))
+        init_positions = np.load(osp.join(osp.dirname(__file__), 'obs_with_time.npy'))[:, 1:]
+        #self.init_pos = init_positions[len(init_positions) // 2,:7]
+        self.init_pos = init_positions[len(init_positions) // 3,:7]
+        #self.init_pos = np.asarray([0.32094667, -0.29257306, -0.21133748, -2.44849628, -0.07229404,  2.16634855,0.93683425])
         self._jstate = None
 
         self.n_obs_steps = n_obs_steps
@@ -196,7 +200,7 @@ class DiffusionController(NodeParameterMixin,
         self.policy.eval().cuda()
         self.policy.reset()
 
-        # self.policy.num_inference_steps = 16
+        #self.policy.num_inference_steps = 64
 
         self.stacked_obs = None
 
@@ -222,9 +226,11 @@ class DiffusionController(NodeParameterMixin,
         if self.start_time is None:
             self.start_time = time_now
         dt = (time_now - self.start_time).nanoseconds / 1e9
-        if dt <= delta:
+        if dt <= delta and delta > 0:
             self.stacked_obs = self.env.reset()
             return
+        elif delta == 0:
+            self.stacked_obs = np.asarray([jnts_obs for _ in range(self.env.n_action_steps)])
 
         if self.current_command is None:
             self.current_command = jnts_obs
@@ -236,8 +242,9 @@ class DiffusionController(NodeParameterMixin,
 
         # jac
         pos_x, pos_q = self.kdl.compute_fk(jnts_obs)
+        init_pos_x, init_pos_q = self.kdl.compute_fk(self.env.init_pos)
 
-        # cur_pos = se3(*self.kdl.compute_fk(jnts_obs))
+        cur_pos = se3(*self.kdl.compute_fk(jnts_obs))
 
 
         if self.env.queue_actions.empty():
@@ -268,17 +275,25 @@ class DiffusionController(NodeParameterMixin,
         new_pos_x = action_to_execute[0:3]
         new_pos_q = action_to_execute[3:7].ravel()
         new_pos_q = new_pos_q / np.linalg.norm(new_pos_q)
+        new_pos = se3(new_pos_x, new_pos_q)
         new_pos_q = quat.from_float_array(new_pos_q)
+        print(new_pos, cur_pos)
 
-        dx = new_pos_x - pos_x
-        dq_rot = (quat.from_float_array(pos_q).conjugate() * new_pos_q)
-        self.get_logger().info(str(f"target new pos q: {new_pos_q}"))
-        self.get_logger().info(str(("Predicted actions: ", dx, dq_rot)))
+        dx = (new_pos_x - pos_x)
+        print("pos_q", pos_q)
+        #dq_rot = (quat.from_float_array(pos_q).conjugate() * quat.from_float_array(init_pos_q))
+        #dq_rot = (quat.from_float_array(init_pos_q) * quat.from_float_array(pos_q).conjugate())
+        dq_rot = new_pos.q * cur_pos.q.conjugate()
+        print("dq_rot", dq_rot)
+        #dq_rot = quat.from_float_array([1,0,0,0])
+        #self.get_logger().info(str(f"target new pos q: {new_pos_q}"))
+
+        self.get_logger().info(str(("Predicted actions: ", dx, dq_rot, pos_q)))
 
         J = np.array(self.kdl.compute_jacobian(jnts_obs))
         dq, *_ = np.linalg.lstsq(J, np.concatenate([dx, quat.as_rotation_vector(dq_rot)]))
 
-        if np.max(np.abs(dq)) < 1e-2:
+        if np.max(np.abs(dq)) < 1e-4:
             return
 
         self.current_command = (0.3 * self.current_command + 0.7 * jnts_obs) + dq
@@ -289,7 +304,7 @@ class DiffusionController(NodeParameterMixin,
         self.stacked_obs, *_ = self.env.step(self.current_command)
 
 def main(args=None):
-    ckpt_path = "/home/ros/humble/src/diffusion_policy/results/12.21_12.11.57_end_effector_control/checkpoints/latest.ckpt"
+    ckpt_path = "/home/ros/humble/src/diffusion_policy/results/22.12_faster_unet/checkpoints/latest.ckpt"
     
     payload = torch.load(open(ckpt_path, 'rb'), pickle_module=dill)
     cfg = payload['cfg']
