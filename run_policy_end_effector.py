@@ -278,7 +278,6 @@ class DiffusionController(NodeParameterMixin,
         new_pos = se3(new_pos_x, new_pos_q)
         new_pos_q = quat.from_float_array(new_pos_q)
         print(new_pos, cur_pos)
-
         dx = (new_pos_x - pos_x)
         print("pos_q", pos_q)
         #dq_rot = (quat.from_float_array(pos_q).conjugate() * quat.from_float_array(init_pos_q))

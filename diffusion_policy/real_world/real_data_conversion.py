@@ -1,12 +1,16 @@
 from typing import Sequence, Tuple, Dict, Optional, Union
 import os
 import pathlib
+
+import cv2
 import numpy as np
 import av
 import zarr
 import numcodecs
 import multiprocessing
 import concurrent.futures
+
+from threadpoolctl import threadpool_limits
 from tqdm import tqdm
 from diffusion_policy.common.replay_buffer import ReplayBuffer, get_optimal_chunks
 from diffusion_policy.common.cv2_util import get_image_transform
@@ -26,10 +30,11 @@ def real_data_to_replay_buffer(
         image_keys: Optional[Sequence[str]]=None,
         lowdim_compressor: Optional[numcodecs.abc.Codec]=None,
         image_compressor: Optional[numcodecs.abc.Codec]=None,
-        n_decoding_threads: int=multiprocessing.cpu_count(),
-        n_encoding_threads: int=multiprocessing.cpu_count(),
-        max_inflight_tasks: int=multiprocessing.cpu_count()*5,
-        verify_read: bool=True
+        n_decoding_threads: int=min(multiprocessing.cpu_count(), 16),
+        n_encoding_threads: int=min(multiprocessing.cpu_count(), 16),
+        max_inflight_tasks: int=min(multiprocessing.cpu_count(), 16) * 5,
+        verify_read: bool=True,
+        dt: int=None,
         ) -> ReplayBuffer:
     """
     It is recommended to use before calling this function
@@ -106,8 +111,10 @@ def real_data_to_replay_buffer(
     n_steps = in_replay_buffer.n_steps
     episode_starts = in_replay_buffer.episode_ends[:] - in_replay_buffer.episode_lengths[:]
     episode_lengths = in_replay_buffer.episode_lengths
-    timestamps = in_replay_buffer['timestamp'][:]
-    dt = timestamps[1] - timestamps[0]
+    print("episode_lengths", episode_lengths, n_steps)
+    if dt is None:
+        timestamps = in_replay_buffer['timestamp'][:]
+        dt = timestamps[1] - timestamps[0]
 
     with tqdm(total=n_steps*n_cameras, desc="Loading image data", mininterval=1.0) as pbar:
         # one chunk per thread, therefore no synchronization needed
@@ -192,3 +199,59 @@ def real_data_to_replay_buffer(
             pbar.update(len(completed))
     return out_replay_buffer
 
+
+def create_zarr_action_dataset(dataset_path: str,):
+    dataset_path = pathlib.Path(dataset_path)
+    action_path = dataset_path / "actions"
+
+    zarr_path = str(dataset_path.joinpath('replay_buffer.zarr').absolute())
+    replay_buffer = ReplayBuffer.create_from_path(
+        zarr_path=zarr_path, mode='w')
+
+    subfolders_actions = [file for file in action_path.iterdir()]
+
+    for _subfolder in subfolders_actions:
+        _file_path = _subfolder / "end_effector_pos_interpolated.npy"
+        _file_path = _file_path.absolute()
+
+        if not _file_path.exists():
+            print(f"{_file_path} does not exist, skipping...")
+            continue
+        array_actions = np.load(_file_path)
+
+        data_dict = {
+            'action': array_actions
+        }
+
+
+        replay_buffer.add_episode(
+            data_dict, compressors="disk",
+        )
+
+
+def test_real_data_conversion():
+    dataset_path = pathlib.Path("/home/lucagrillotti/projects/diffusion_policy/data/test_dataset/")
+    output_path = dataset_path / "replay_buffer_final.zarr.zip"
+    assert output_path.suffix == ".zip"
+    cv2.setNumThreads(1)
+    with threadpool_limits(1):
+        create_zarr_action_dataset(dataset_path=dataset_path)
+        replay_buffer = real_data_to_replay_buffer(dataset_path=dataset_path,
+                                                   image_keys=tuple(f"{index}" for index in range(3)), # 3 because there are 3 cameras
+                                                   dt=0.1,
+                                                   )
+
+    with zarr.ZipStore(output_path) as zip_store:
+        replay_buffer.save_to_store(
+            store=zip_store
+        )
+
+
+if __name__ == '__main__':
+    # new_replay_buffer = ReplayBuffer.copy_from_path("/home/lucagrillotti/projects/diffusion_policy/data/test_dataset/replay_buffer_final.zarr.zip")
+    # with zarr.ZipStore("test.zarr.zip") as zip_store:
+    #     new_replay_buffer.save_to_store(
+    #         store=zip_store
+    #     )
+
+    test_real_data_conversion()
