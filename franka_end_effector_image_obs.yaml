@@ -1,4 +1,4 @@
-_target_: diffusion_policy.workspace.train_diffusion_unet_lowdim_workspace.TrainDiffusionUnetLowdimWorkspace
+_target_: diffusion_policy.workspace.train_diffusion_unet_lowdim_workspace.TrainDiffusionUnetImageWorkspace
 action_dim: 7
 checkpoint:
   save_last_ckpt: true
@@ -9,8 +9,8 @@ checkpoint:
     mode: max
     monitor_key: test_mean_score
 dataloader:
-  batch_size: 256
-  num_workers: 1
+  batch_size: 64
+  num_workers: 8
   persistent_workers: false
   pin_memory: true
   shuffle: true
@@ -33,19 +33,17 @@ logging:
   project: diffusion_policy_debug
   resume: true
   tags:
-  - train_diffusion_unet_lowdim
-  - kitchen_lowdim
+  - train_diffusion_unet_image
   - obs_global_rerun
 multi_run:
-  run_dir: data/outputs/2023.02.25/03.06.09_train_diffusion_unet_lowdim_kitchen_lowdim
-  wandb_name_base: 2023.02.25-03.06.09_train_diffusion_unet_lowdim_kitchen_lowdim
-n_action_steps: 6
+  run_dir: data/outputs/2023.02.25/03.06.09_train_diffusion_unet_image_franka_real
+  wandb_name_base: 2023.02.25-03.06.09_train_diffusion_unet_image_franka_real
+n_action_steps: 8
 n_latency_steps: 0
 n_obs_steps: 2
-name: train_diffusion_unet_lowdim
+name: train_diffusion_unet_image
 obs_as_global_cond: true
 obs_as_local_cond: false
-obs_dim: 7
 optimizer:
   _target_: torch.optim.AdamW
   betas:
@@ -56,24 +54,45 @@ optimizer:
   weight_decay: 1.0e-06
 past_action_visible: false
 policy:
-  _target_: diffusion_policy.policy.diffusion_unet_lowdim_policy.DiffusionUnetLowdimPolicy
-  action_dim: 7
+  _target_: diffusion_policy.policy.diffusion_unet_hybrid_image_policy.DiffusionUnetHybridImagePolicy
+  cond_predict_scale: true
+  crop_shape:
+    - 216
+    - 288
+  diffusion_step_embed_dim: 128
+  down_dims:
+  - 512
+  - 1024
+  - 2048
+  eval_fixed_crop: true
   horizon: 16
-  model:
-    _target_: diffusion_policy.model.diffusion.conditional_unet1d.ConditionalUnet1D
-    cond_predict_scale: true
-    diffusion_step_embed_dim: 256
-    down_dims:
-    - 256
-    - 512
-    - 1024
-    global_cond_dim: 14
-    input_dim: 7
-    kernel_size: 5
-    local_cond_dim: null
-    n_groups: 8
-  n_action_steps: 6
+  kernel_size: 5
+  n_action_steps: 8
   n_obs_steps: 2
+  n_groups: 8
+  shape_meta:
+    action:
+      shape:
+        - 7
+    obs:
+      camera_0:
+        shape:
+          - 3
+          - 240
+          - 320
+        type: rgb
+      camera_1:
+        shape:
+          - 3
+          - 240
+          - 320
+        type: rgb
+      camera_2:
+        shape:
+          - 3
+          - 240
+          - 320
+        type: rgb
   noise_scheduler:
     _target_: diffusers.schedulers.scheduling_ddim.DDIMScheduler
     num_train_timesteps: 100
@@ -87,15 +106,11 @@ policy:
     steps_offset: 0
     prediction_type: epsilon # or sample
   num_inference_steps: 100
-  oa_step_convention: true
   obs_as_global_cond: true
-  obs_as_local_cond: false
-  obs_dim: 7
-  pred_action_steps_only: false
+  obs_encoder_group_norm: true
 pred_action_steps_only: false
 task:
   abs_action: true
-  action_dim: 7
   dataset:
     _target_: diffusion_policy.dataset.kitchen_mjl_lowdim_dataset.KitchenCustomDataset
     abs_action: true
@@ -110,28 +125,6 @@ task:
     use_end_effector: true
   env_runner:
     _target_: diffusion_policy.env_runner.real_robot_runner.DummyRobot
-#    abs_action: true
-#    dataset_dir: data/kitchen
-#    fps: 12.5
-#    max_steps: 280
-#    n_action_steps: 8
-#    n_envs: null
-#    n_obs_steps: 2
-#    n_test: 50
-#    n_test_vis: 4
-#    n_train: 6
-#    n_train_vis: 2
-#    past_action: false
-#    render_hw:
-#    - 240
-#    - 360
-#    robot_noise_ratio: 0.1
-#    test_start_seed: 100000
-#    train_start_seed: 0
-  keypoint_dim: 3
-  name: kitchen_lowdim
-  obs_dim: 7
-  robot_noise_ratio: 0.1
 task_name: kitchen_lowdim
 training:
   checkpoint_every: 50
@@ -142,7 +135,7 @@ training:
   lr_warmup_steps: 500
   max_train_steps: null
   max_val_steps: null
-  num_epochs: 5000
+  num_epochs: 8000
   resume: true
   rollout_every: 50
   sample_every: 5
@@ -151,8 +144,8 @@ training:
   use_ema: true
   val_every: 1
 val_dataloader:
-  batch_size: 256
-  num_workers: 1
+  batch_size: 64
+  num_workers: 8
   persistent_workers: false
   pin_memory: true
   shuffle: false
