@@ -18,10 +18,13 @@ import gym
 import gym.spaces
 import multiprocessing as mp
 import os.path as osp
+
+from diffusion_policy.env_runner.base_image_runner import BaseImageRunner
 from diffusion_policy.gym_util.async_vector_env import AsyncVectorEnv
 from diffusion_policy.gym_util.sync_vector_env import SyncVectorEnv
 from diffusion_policy.gym_util.multistep_wrapper import MultiStepWrapper
 from diffusion_policy.gym_util.video_recording_wrapper import VideoRecordingWrapper, VideoRecorder
+from diffusion_policy.policy.base_image_policy import BaseImagePolicy
 
 from diffusion_policy.policy.base_lowdim_policy import BaseLowdimPolicy
 from diffusion_policy.common.pytorch_util import dict_apply
@@ -36,6 +39,14 @@ class DummyRobot(BaseLowdimRunner):
         super().__init__(output_dir)
 
     def run(self, policy: BaseLowdimPolicy) -> Dict:
+        return dict()
+
+
+class DummyImageRobot(BaseImageRunner):
+    def __init__(self, output_dir):
+        super().__init__(output_dir)
+
+    def run(self, policy: BaseImagePolicy) -> Dict:
         return dict()
 
 
