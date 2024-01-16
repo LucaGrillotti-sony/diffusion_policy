@@ -56,6 +56,7 @@ import PyKDL
 from kdl_solver import KDLSolver
 import copy
 
+
 class EnvControlWrapper:
     def __init__(self, jpc_pub, n_obs_steps, n_action_steps):
         self.observation_space = gym.spaces.Box(
@@ -63,11 +64,11 @@ class EnvControlWrapper:
         self.action_space = gym.spaces.Box(
             -8, 8, shape=(7,), dtype=np.float32)  # TODO
         self._jpc_pub = jpc_pub
-        #self.init_pos = np.load(osp.join(osp.dirname(__file__), 'init_joint_pos.npy'))
+        # self.init_pos = np.load(osp.join(osp.dirname(__file__), 'init_joint_pos.npy'))
         init_positions = np.load(osp.join(osp.dirname(__file__), 'obs_with_time.npy'))[:, 1:]
-        #self.init_pos = init_positions[len(init_positions) // 2,:7]
-        self.init_pos = init_positions[len(init_positions) // 3,:7]
-        #self.init_pos = np.asarray([0.32094667, -0.29257306, -0.21133748, -2.44849628, -0.07229404,  2.16634855,0.93683425])
+        # self.init_pos = init_positions[len(init_positions) // 2,:7]
+        self.init_pos = init_positions[len(init_positions) // 3, :7]
+        # self.init_pos = np.asarray([0.32094667, -0.29257306, -0.21133748, -2.44849628, -0.07229404,  2.16634855,0.93683425])
         self._jstate = None
 
         self.n_obs_steps = n_obs_steps
@@ -80,7 +81,7 @@ class EnvControlWrapper:
 
     def reset(self):
         # TODO: handle reset properly
-        #self.jpc_send_goal(self.init_pos)
+        # self.jpc_send_goal(self.init_pos)
         init_pos = self.init_pos
         obs, *_ = self.step(init_pos)
         return obs
@@ -106,7 +107,7 @@ class EnvControlWrapper:
         """
         Output (n_steps,) + obs_shape
         """
-        assert(len(self.all_observations) > 0)
+        assert (len(self.all_observations) > 0)
         if isinstance(self.observation_space, spaces.Box):
             return self.stack_last_n_obs(self.all_observations, n_steps)
         elif isinstance(self.observation_space, spaces.Dict):
@@ -166,16 +167,20 @@ class EnvControlWrapper:
         msg.data = list(jpos)
         self._jpc_pub.publish(msg)
 
+
 class DiffusionController(NodeParameterMixin,
                           NodeWaitMixin,
                           NodeTFMixin,
                           rclpy.node.Node):
     NODE_PARAMETERS = dict(
         joy_topic='/spacenav/joy',
-        # jpc_topic=('jpc_topic', '/joint_group_position_controller/commands'),
         jpc_topic='/ruckig_controller/commands',
-        # jpc_topic=('jpc_topic', '/joint_group_velocity_controller/commands'),
         jstate_topic='/joint_states',
+        cartesian_control_topic='/cartesian_control',
+        camera_1='/azure06/rgb/image_raw/compressed',
+        camera_2='/azure07/rgb/image_raw/compressed',
+        camera_3='/azure08/rgb/image_raw/compressed',
+        camera_4='/d405rs01/color/image_rect_raw/compressed',
     )
 
     def __init__(self, policy, n_obs_steps, n_action_steps, *args, node_name='robot_calibrator', **kwargs):
@@ -195,12 +200,13 @@ class DiffusionController(NodeParameterMixin,
         self.kdl = KDLSolver(self.robot_description)
         self.kdl.set_kinematic_chain('panda_link0', 'panda_hand')
 
-        self.env = EnvControlWrapper(self.jpc_pub, n_obs_steps=n_obs_steps, n_action_steps=n_action_steps)  # TODO: magic constants.
+        self.env = EnvControlWrapper(self.jpc_pub, n_obs_steps=n_obs_steps,
+                                     n_action_steps=n_action_steps)  # TODO: magic constants.
         self.policy = policy
         self.policy.eval().cuda()
         self.policy.reset()
 
-        #self.policy.num_inference_steps = 64
+        # self.policy.num_inference_steps = 64
 
         self.stacked_obs = None
 
@@ -214,7 +220,7 @@ class DiffusionController(NodeParameterMixin,
         msg = Float64MultiArray()
         msg.layout.dim = [MultiArrayDimension(size=7, stride=1)]
         msg.data = list(jpos)
-        #self.jpc_pub.publish(msg)
+        # self.jpc_pub.publish(msg)
 
     def policy_cb(self):
         jnts_obs = self.env.get_obs()
@@ -245,7 +251,6 @@ class DiffusionController(NodeParameterMixin,
         init_pos_x, init_pos_q = self.kdl.compute_fk(self.env.init_pos)
 
         cur_pos = se3(*self.kdl.compute_fk(jnts_obs))
-
 
         if self.env.queue_actions.empty():
             self.get_logger().info("Adding actions to buffer")
@@ -280,12 +285,12 @@ class DiffusionController(NodeParameterMixin,
         print(new_pos, cur_pos)
         dx = (new_pos_x - pos_x)
         print("pos_q", pos_q)
-        #dq_rot = (quat.from_float_array(pos_q).conjugate() * quat.from_float_array(init_pos_q))
-        #dq_rot = (quat.from_float_array(init_pos_q) * quat.from_float_array(pos_q).conjugate())
+        # dq_rot = (quat.from_float_array(pos_q).conjugate() * quat.from_float_array(init_pos_q))
+        # dq_rot = (quat.from_float_array(init_pos_q) * quat.from_float_array(pos_q).conjugate())
         dq_rot = new_pos.q * cur_pos.q.conjugate()
         print("dq_rot", dq_rot)
-        #dq_rot = quat.from_float_array([1,0,0,0])
-        #self.get_logger().info(str(f"target new pos q: {new_pos_q}"))
+        # dq_rot = quat.from_float_array([1,0,0,0])
+        # self.get_logger().info(str(f"target new pos q: {new_pos_q}"))
 
         self.get_logger().info(str(("Predicted actions: ", dx, dq_rot, pos_q)))
 
@@ -302,9 +307,10 @@ class DiffusionController(NodeParameterMixin,
 
         self.stacked_obs, *_ = self.env.step(self.current_command)
 
+
 def main(args=None):
     ckpt_path = "/home/ros/humble/src/diffusion_policy/results/22.12_faster_unet/checkpoints/latest.ckpt"
-    
+
     payload = torch.load(open(ckpt_path, 'rb'), pickle_module=dill)
     cfg = payload['cfg']
     cls = hydra.utils.get_class(cfg._target_)
@@ -345,4 +351,3 @@ def main(args=None):
 
 if __name__ == "__main__":
     main()
-
