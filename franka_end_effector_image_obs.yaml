@@ -8,12 +8,6 @@ checkpoint:
     k: 5
     mode: max
     monitor_key: test_mean_score
-dataloader:
-  batch_size: 64
-  num_workers: 8
-  persistent_workers: false
-  pin_memory: true
-  shuffle: true
 ema:
   _target_: diffusion_policy.model.diffusion.ema_model.EMAModel
   inv_gamma: 1.0
@@ -61,9 +55,9 @@ policy:
     - 288
   diffusion_step_embed_dim: 128
   down_dims:
+  - 256
   - 512
   - 1024
-  - 2048
   eval_fixed_crop: true
   horizon: 16
   kernel_size: 5
@@ -93,6 +87,16 @@ policy:
           - 240
           - 320
         type: rgb
+      camera_3:
+        shape:
+          - 3
+          - 240
+          - 320
+        type: rgb
+      eef:
+        shape:
+          - 7
+        type: low_dim
   noise_scheduler:
     _target_: diffusers.schedulers.scheduling_ddim.DDIMScheduler
     num_train_timesteps: 100
@@ -137,6 +141,16 @@ task:
             - 240
             - 320
           type: rgb
+        camera_3:
+          shape:
+            - 3
+            - 240
+            - 320
+          type: rgb
+        eef:
+          shape:
+            - 7
+          type: low_dim
     dataset_path: data/test_dataset
     dt: 0.1
     horizon: 16
@@ -167,10 +181,16 @@ training:
   seed: 42
   tqdm_interval_sec: 1.0
   use_ema: true
-  val_every: 1
+  val_every: 5
 val_dataloader:
-  batch_size: 64
+  batch_size: 32
   num_workers: 8
   persistent_workers: false
   pin_memory: true
   shuffle: false
+dataloader:
+  batch_size: 32
+  num_workers: 8
+  persistent_workers: false
+  pin_memory: true
+  shuffle: true
