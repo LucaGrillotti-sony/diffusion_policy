@@ -3,6 +3,7 @@ Usage:
 Training:
 python train.py --config-name=train_diffusion_lowdim_workspace
 """
+import collections
 import queue
 import os
 import os.path as osp
@@ -19,6 +20,7 @@ from diffusion_policy.env_runner.real_robot_runner import RealRobot
 from diffusion_policy.workspace.train_diffusion_transformer_lowdim_workspace import \
     TrainDiffusionTransformerLowdimWorkspace
 from diffusion_policy.workspace.train_diffusion_unet_lowdim_workspace import TrainDiffusionUnetLowdimWorkspace
+from read_sensors_utils.format_data_replay_buffer import end_effector_calculator, convert_image, get_robot_description
 
 # use line-buffering for both stdout and stderr
 sys.stdout = open(sys.stdout.fileno(), mode='w', buffering=1)
@@ -46,11 +48,13 @@ from rclpy.qos import QoSProfile, QoSDurabilityPolicy
 from srl_utilities.node2 import NodeParameterMixin, NodeTFMixin, NodeWaitMixin
 from srl_utilities.se3 import SE3, se3, se3_mat, se3_mul, se3_repr, se3_unmat, _rw2wr, lie_grad
 
-from sensor_msgs.msg import Joy, JointState
+from sensor_msgs.msg import Joy, JointState, CompressedImage
 from std_msgs.msg import String, Float64MultiArray, MultiArrayDimension
 from control_msgs.action import FollowJointTrajectory
 from trajectory_msgs.msg import JointTrajectoryPoint
 from franka_msgs.action import Grasp
+from cv_bridge import CvBridge
+
 
 import PyKDL
 from kdl_solver import KDLSolver
@@ -75,7 +79,7 @@ class EnvControlWrapper:
         self.n_action_steps = n_action_steps
         self.max_steps = None  # TODO
 
-        self.all_observations = []  # TODO: same for reward?
+        self.all_observations = collections.deque(maxlen=self.n_obs_steps)  # TODO: same for reward?
 
         self.queue_actions = queue.Queue()
 
@@ -88,7 +92,10 @@ class EnvControlWrapper:
 
     def _compute_obs(self):
         jnts = np.array(self._jstate.position[:7])
-        return jnts
+        np_jnts_dict = {
+            'obs': jnts.astype(np.float32)
+        }
+        return np_jnts_dict
 
     def get_obs(self):
         if self._jstate is None:
@@ -140,7 +147,7 @@ class EnvControlWrapper:
         action = self.queue_actions.get()
         return action
 
-    def step(self, action):
+    def step(self, action, do_return_stacked_obs=False):
         self.jpc_send_goal(action)
         obs = self.get_obs()
         reward = -1.
@@ -148,12 +155,20 @@ class EnvControlWrapper:
         done = False
 
         self.all_observations.append(obs)
-        stacked_obs = self._compute_stacked_obs(n_steps=self.n_obs_steps)
+
+        if do_return_stacked_obs:
+            # if you want the stacked obs, call request_stacked_obs() instead
+            stacked_obs = self._compute_stacked_obs(n_steps=self.n_obs_steps)
+        else:
+            stacked_obs = None
 
         if (self.max_steps is not None) and (len(self.all_observations) > self.max_steps):
             done = True
 
-        return stacked_obs, reward, done, info  # TODO
+        return stacked_obs, reward, done, info
+
+    def request_stacked_obs(self):
+        return self._compute_stacked_obs(n_steps=self.n_obs_steps)
 
     def get_jstate(self):
         return self._jstate
@@ -168,6 +183,48 @@ class EnvControlWrapper:
         self._jpc_pub.publish(msg)
 
 
+class EnvControlWrapperWithCameras(EnvControlWrapper):
+    def __init__(self, jpc_pub, n_obs_steps, n_action_steps, path_bag_robot_description):
+        super().__init__(jpc_pub, n_obs_steps, n_action_steps)
+
+        self.camera_1_compressed_msg = None
+        self.camera_2_compressed_msg = None
+        self.camera_3_compressed_msg = None
+        self.camera_4_compressed_msg = None
+
+        self.robot_description = get_robot_description(path_bag_robot_description=path_bag_robot_description)
+        self.cv_bridge = CvBridge()
+        self._kdl = KDLSolver(self.robot_description)
+
+    def set_camera_1_compressed_msg(self, msg):
+        self.camera_1_compressed_msg = msg
+
+    def set_camera_2_compressed_msg(self, msg):
+        self.camera_2_compressed_msg = msg
+
+    def set_camera_3_compressed_msg(self, msg):
+        self.camera_3_compressed_msg = msg
+
+    def set_camera_4_compressed_msg(self, msg):
+        self.camera_4_compressed_msg = msg
+
+    def _compute_obs(self):
+        pos_end_effector = end_effector_calculator(self._jstate, self._kdl)
+
+        camera_1_data = convert_image(cv_bridge=self.cv_bridge, msg_ros=self.camera_1_compressed_msg)
+        camera_2_data = convert_image(cv_bridge=self.cv_bridge, msg_ros=self.camera_2_compressed_msg)
+        camera_3_data = convert_image(cv_bridge=self.cv_bridge, msg_ros=self.camera_3_compressed_msg)
+        camera_4_data = convert_image(cv_bridge=self.cv_bridge, msg_ros=self.camera_4_compressed_msg)
+
+        return {
+            'eef': pos_end_effector.astype(np.float32),
+            'camera_1': camera_1_data.astype(np.float32),
+            'camera_2': camera_2_data.astype(np.float32),
+            'camera_3': camera_3_data.astype(np.float32),
+            'camera_4': camera_4_data.astype(np.float32),
+        }
+
+
 class DiffusionController(NodeParameterMixin,
                           NodeWaitMixin,
                           NodeTFMixin,
@@ -177,13 +234,13 @@ class DiffusionController(NodeParameterMixin,
         jpc_topic='/ruckig_controller/commands',
         jstate_topic='/joint_states',
         cartesian_control_topic='/cartesian_control',
-        camera_1='/azure06/rgb/image_raw/compressed',
-        camera_2='/azure07/rgb/image_raw/compressed',
-        camera_3='/azure08/rgb/image_raw/compressed',
-        camera_4='/d405rs01/color/image_rect_raw/compressed',
+        camera_1_topic='/azure06/rgb/image_raw/compressed',
+        camera_2_topic='/azure07/rgb/image_raw/compressed',
+        camera_3_topic='/azure08/rgb/image_raw/compressed',
+        camera_4_topic='/d405rs01/color/image_rect_raw/compressed',
     )
 
-    def __init__(self, policy, n_obs_steps, n_action_steps, *args, node_name='robot_calibrator', **kwargs):
+    def __init__(self, policy, n_obs_steps, n_action_steps, path_bag_robot_description, *args, node_name='robot_calibrator', **kwargs):
         super().__init__(*args, node_name=node_name, node_parameters=self.NODE_PARAMETERS, **kwargs)
         # jtc commandor
         self.current_command = None
@@ -200,8 +257,10 @@ class DiffusionController(NodeParameterMixin,
         self.kdl = KDLSolver(self.robot_description)
         self.kdl.set_kinematic_chain('panda_link0', 'panda_hand')
 
-        self.env = EnvControlWrapper(self.jpc_pub, n_obs_steps=n_obs_steps,
-                                     n_action_steps=n_action_steps)  # TODO: magic constants.
+        self.env = EnvControlWrapperWithCameras(self.jpc_pub,
+                                                n_obs_steps=n_obs_steps,
+                                                n_action_steps=n_action_steps,
+                                                path_bag_robot_description=path_bag_robot_description)
         self.policy = policy
         self.policy.eval().cuda()
         self.policy.reset()
@@ -215,6 +274,18 @@ class DiffusionController(NodeParameterMixin,
         # joint states sub
         self.jstate_sub = self.create_subscription(
             JointState, self.jstate_topic, lambda msg: self.env.set_jstate(msg), 10)
+
+        self.camera_1_sub = self.create_subscription(
+            CompressedImage, self.camera_1_topic, lambda msg: self.env.set_camera_1_compressed_msg(msg), 10)
+
+        self.camera_2_sub = self.create_subscription(
+            CompressedImage, self.camera_1_topic, lambda msg: self.env.set_camera_2_compressed_msg(msg), 10)
+
+        self.camera_3_sub = self.create_subscription(
+            CompressedImage, self.camera_1_topic, lambda msg: self.env.set_camera_3_compressed_msg(msg), 10)
+
+        self.camera_4_sub = self.create_subscription(
+            CompressedImage, self.camera_1_topic, lambda msg: self.env.set_camera_4_compressed_msg(msg), 10)
 
     def jpc_send_goal(self, jpos):
         msg = Float64MultiArray()
@@ -255,13 +326,11 @@ class DiffusionController(NodeParameterMixin,
         if self.env.queue_actions.empty():
             self.get_logger().info("Adding actions to buffer")
             with torch.no_grad():
-                stacked_obs = self.stacked_obs.reshape(1, *self.stacked_obs.shape)
-                np_obs_dict = {
-                    'obs': stacked_obs.astype(np.float32)
-                }
+                stacked_obs = self.env.request_stacked_obs()
+                stacked_obs = stacked_obs.reshape(1, *self.stacked_obs.shape)
 
                 # device transfer
-                obs_dict = dict_apply(np_obs_dict,
+                obs_dict = dict_apply(stacked_obs,
                                       lambda x: torch.from_numpy(x).cuda())
                 action_dict = self.policy.predict_action(obs_dict)
                 np_action_dict = dict_apply(action_dict,
@@ -281,14 +350,11 @@ class DiffusionController(NodeParameterMixin,
         new_pos_q = action_to_execute[3:7].ravel()
         new_pos_q = new_pos_q / np.linalg.norm(new_pos_q)
         new_pos = se3(new_pos_x, new_pos_q)
-        new_pos_q = quat.from_float_array(new_pos_q)
-        print(new_pos, cur_pos)
+        # new_pos_q = quat.from_float_array(new_pos_q)
         dx = (new_pos_x - pos_x)
-        print("pos_q", pos_q)
         # dq_rot = (quat.from_float_array(pos_q).conjugate() * quat.from_float_array(init_pos_q))
         # dq_rot = (quat.from_float_array(init_pos_q) * quat.from_float_array(pos_q).conjugate())
         dq_rot = new_pos.q * cur_pos.q.conjugate()
-        print("dq_rot", dq_rot)
         # dq_rot = quat.from_float_array([1,0,0,0])
         # self.get_logger().info(str(f"target new pos q: {new_pos_q}"))
 
@@ -305,11 +371,14 @@ class DiffusionController(NodeParameterMixin,
 
         self.get_logger().info(str(self.current_command - jnts_obs))
 
-        self.stacked_obs, *_ = self.env.step(self.current_command)
+        self.env.step(self.current_command)
 
 
 def main(args=None):
     ckpt_path = "/home/ros/humble/src/diffusion_policy/results/22.12_faster_unet/checkpoints/latest.ckpt"
+    n_obs_steps = 2
+    n_action_steps = 6
+    path_bag_robot_description = "/home/ros/humble/src/read-db/rosbag2_2024_01_11-17_13_10/"
 
     payload = torch.load(open(ckpt_path, 'rb'), pickle_module=dill)
     cfg = payload['cfg']
@@ -330,8 +399,9 @@ def main(args=None):
     try:
         nodes = [
             DiffusionController(policy=workspace.model,
-                                n_obs_steps=2,  # TODO: fix magic constants
-                                n_action_steps=6,
+                                n_obs_steps=n_obs_steps,
+                                n_action_steps=n_action_steps,
+                                path_bag_robot_description=path_bag_robot_description,
                                 ),
         ]
 
