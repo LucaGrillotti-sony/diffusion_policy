@@ -211,18 +211,24 @@ def create_zarr_action_dataset(dataset_path: str,):
     subfolders_actions = [file for file in action_path.iterdir()]
 
     for _subfolder in subfolders_actions:
-        _file_path = _subfolder / "end_effector_pos_interpolated.npy"
+        _file_path = _subfolder / "target_end_effector_pos_interpolated.npy"
+        _file_path_eef = _subfolder / "current_eef_pos_interpolated.npy"
         _file_path = _file_path.absolute()
+        _file_path_eef = _file_path_eef.absolute()
 
         if not _file_path.exists():
             print(f"{_file_path} does not exist, skipping...")
             continue
+        if not _file_path_eef.exists():
+            print(f"{_file_path_eef} does not exist, skipping...")
+            continue
         array_actions = np.load(_file_path)
+        array_eef = np.load(_file_path_eef)
 
         data_dict = {
-            'action': array_actions
+            'action': array_actions,
+            'eef': array_eef,
         }
-
 
         replay_buffer.add_episode(
             data_dict, compressors="disk",
@@ -230,14 +236,14 @@ def create_zarr_action_dataset(dataset_path: str,):
 
 
 def test_real_data_conversion():
-    dataset_path = pathlib.Path("/home/lucagrillotti/projects/diffusion_policy/data/test_dataset/")
+    dataset_path = pathlib.Path("/home/lucagrillotti/ros/humble/src/diffusion_policy/data/test_dataset/")
     output_path = dataset_path / "replay_buffer_final.zarr.zip"
     assert output_path.suffix == ".zip"
     cv2.setNumThreads(1)
     with threadpool_limits(1):
         create_zarr_action_dataset(dataset_path=dataset_path)
         replay_buffer = real_data_to_replay_buffer(dataset_path=dataset_path,
-                                                   image_keys=tuple(f"{index}" for index in range(3)), # 3 because there are 3 cameras
+                                                   image_keys=tuple(f"{index}" for index in range(4)), # 3 because there are 3 cameras
                                                    dt=0.1,
                                                    )
 
