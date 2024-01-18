@@ -8,6 +8,8 @@ import queue
 import os
 import os.path as osp
 import sys
+from typing import Dict
+
 import dill
 
 import click
@@ -21,6 +23,7 @@ from diffusion_policy.workspace.train_diffusion_transformer_lowdim_workspace imp
     TrainDiffusionTransformerLowdimWorkspace
 from diffusion_policy.workspace.train_diffusion_unet_lowdim_workspace import TrainDiffusionUnetLowdimWorkspace
 from read_sensors_utils.format_data_replay_buffer import end_effector_calculator, convert_image, get_robot_description
+from read_sensors_utils.quaternion_utils import quat_library_from_ros
 
 # use line-buffering for both stdout and stderr
 sys.stdout = open(sys.stdout.fileno(), mode='w', buffering=1)
@@ -55,6 +58,8 @@ from trajectory_msgs.msg import JointTrajectoryPoint
 from franka_msgs.action import Grasp
 from cv_bridge import CvBridge
 
+import diffusion_policy.workspace.train_diffusion_unet_hybrid_workspace
+
 
 import PyKDL
 from kdl_solver import KDLSolver
@@ -63,16 +68,25 @@ import copy
 
 class EnvControlWrapper:
     def __init__(self, jpc_pub, n_obs_steps, n_action_steps):
-        self.observation_space = gym.spaces.Box(
-            -8, 8, shape=(7,), dtype=np.float32)  # TODO
+        self.observation_space = gym.spaces.Dict(
+            {
+                'eef': gym.spaces.Box( -8, 8, shape=(7,), dtype=np.float32),
+                'camera_1': gym.spaces.Box(0, 1, shape=(3, 240, 320), dtype=np.float32),
+                'camera_2': gym.spaces.Box(0, 1, shape=(3, 240, 320), dtype=np.float32),
+                'camera_3': gym.spaces.Box(0, 1, shape=(3, 240, 320), dtype=np.float32),
+                'camera_0': gym.spaces.Box(0, 1, shape=(3, 240, 320), dtype=np.float32),
+            }
+        )
+        # self.observation_space = gym.spaces.Box(
+        #     -8, 8, shape=(7,), dtype=np.float32)  # TODO
         self.action_space = gym.spaces.Box(
             -8, 8, shape=(7,), dtype=np.float32)  # TODO
         self._jpc_pub = jpc_pub
         # self.init_pos = np.load(osp.join(osp.dirname(__file__), 'init_joint_pos.npy'))
-        init_positions = np.load(osp.join(osp.dirname(__file__), 'obs_with_time.npy'))[:, 1:]
+        # init_positions = np.load(osp.join(osp.dirname(__file__), 'obs_with_time.npy'))[:, 1:]
         # self.init_pos = init_positions[len(init_positions) // 2,:7]
-        self.init_pos = init_positions[len(init_positions) // 3, :7]
-        # self.init_pos = np.asarray([0.32094667, -0.29257306, -0.21133748, -2.44849628, -0.07229404,  2.16634855,0.93683425])
+        # self.init_pos = init_positions[len(init_positions) // 3, :7]
+        self.init_pos = np.asarray([-0.38435703, -0.82782065, 0.25952787, -2.3897604, 0.18524243, 1.5886066, 0.59382302])
         self._jstate = None
 
         self.n_obs_steps = n_obs_steps
@@ -167,7 +181,7 @@ class EnvControlWrapper:
 
         return stacked_obs, reward, done, info
 
-    def request_stacked_obs(self):
+    def request_stacked_obs(self) -> Dict:
         return self._compute_stacked_obs(n_steps=self.n_obs_steps)
 
     def get_jstate(self):
@@ -182,6 +196,10 @@ class EnvControlWrapper:
         msg.data = list(jpos)
         self._jpc_pub.publish(msg)
 
+    def get_joints_pos(self):
+        pos_joints = np.asarray(self._jstate.position[:7])
+        return pos_joints.astype(np.float32)
+
 
 class EnvControlWrapperWithCameras(EnvControlWrapper):
     def __init__(self, jpc_pub, n_obs_steps, n_action_steps, path_bag_robot_description):
@@ -190,11 +208,12 @@ class EnvControlWrapperWithCameras(EnvControlWrapper):
         self.camera_1_compressed_msg = None
         self.camera_2_compressed_msg = None
         self.camera_3_compressed_msg = None
-        self.camera_4_compressed_msg = None
+        self.camera_0_compressed_msg = None
 
         self.robot_description = get_robot_description(path_bag_robot_description=path_bag_robot_description)
         self.cv_bridge = CvBridge()
         self._kdl = KDLSolver(self.robot_description)
+        self._kdl .set_kinematic_chain('panda_link0', 'panda_hand')
 
     def set_camera_1_compressed_msg(self, msg):
         self.camera_1_compressed_msg = msg
@@ -205,8 +224,18 @@ class EnvControlWrapperWithCameras(EnvControlWrapper):
     def set_camera_3_compressed_msg(self, msg):
         self.camera_3_compressed_msg = msg
 
-    def set_camera_4_compressed_msg(self, msg):
-        self.camera_4_compressed_msg = msg
+    def set_camera_0_compressed_msg(self, msg):
+        self.camera_0_compressed_msg = msg
+
+    def get_obs(self):
+        if (self._jstate is None
+                or self.camera_1_compressed_msg is None
+                or self.camera_2_compressed_msg is None
+                or self.camera_3_compressed_msg is None
+                or self.camera_0_compressed_msg is None) :
+            return None
+        else:
+            return self._compute_obs()
 
     def _compute_obs(self):
         pos_end_effector = end_effector_calculator(self._jstate, self._kdl)
@@ -214,14 +243,14 @@ class EnvControlWrapperWithCameras(EnvControlWrapper):
         camera_1_data = convert_image(cv_bridge=self.cv_bridge, msg_ros=self.camera_1_compressed_msg)
         camera_2_data = convert_image(cv_bridge=self.cv_bridge, msg_ros=self.camera_2_compressed_msg)
         camera_3_data = convert_image(cv_bridge=self.cv_bridge, msg_ros=self.camera_3_compressed_msg)
-        camera_4_data = convert_image(cv_bridge=self.cv_bridge, msg_ros=self.camera_4_compressed_msg)
+        camera_0_data = convert_image(cv_bridge=self.cv_bridge, msg_ros=self.camera_0_compressed_msg)
 
         return {
             'eef': pos_end_effector.astype(np.float32),
             'camera_1': camera_1_data.astype(np.float32),
             'camera_2': camera_2_data.astype(np.float32),
             'camera_3': camera_3_data.astype(np.float32),
-            'camera_4': camera_4_data.astype(np.float32),
+            'camera_0': camera_0_data.astype(np.float32),
         }
 
 
@@ -237,7 +266,7 @@ class DiffusionController(NodeParameterMixin,
         camera_1_topic='/azure06/rgb/image_raw/compressed',
         camera_2_topic='/azure07/rgb/image_raw/compressed',
         camera_3_topic='/azure08/rgb/image_raw/compressed',
-        camera_4_topic='/d405rs01/color/image_rect_raw/compressed',
+        camera_0_topic='/d405rs01/color/image_rect_raw/compressed',
     )
 
     def __init__(self, policy, n_obs_steps, n_action_steps, path_bag_robot_description, *args, node_name='robot_calibrator', **kwargs):
@@ -284,8 +313,8 @@ class DiffusionController(NodeParameterMixin,
         self.camera_3_sub = self.create_subscription(
             CompressedImage, self.camera_1_topic, lambda msg: self.env.set_camera_3_compressed_msg(msg), 10)
 
-        self.camera_4_sub = self.create_subscription(
-            CompressedImage, self.camera_1_topic, lambda msg: self.env.set_camera_4_compressed_msg(msg), 10)
+        self.camera_0_sub = self.create_subscription(
+            CompressedImage, self.camera_1_topic, lambda msg: self.env.set_camera_0_compressed_msg(msg), 10)
 
     def jpc_send_goal(self, jpos):
         msg = Float64MultiArray()
@@ -294,8 +323,9 @@ class DiffusionController(NodeParameterMixin,
         # self.jpc_pub.publish(msg)
 
     def policy_cb(self):
-        jnts_obs = self.env.get_obs()
-        if jnts_obs is None:
+        obs = self.env.get_obs()
+        jnts_obs = self.env.get_joints_pos()
+        if obs is None:
             return
 
         delta = 5
@@ -307,10 +337,10 @@ class DiffusionController(NodeParameterMixin,
             self.stacked_obs = self.env.reset()
             return
         elif delta == 0:
-            self.stacked_obs = np.asarray([jnts_obs for _ in range(self.env.n_action_steps)])
+            self.stacked_obs = np.asarray([self.env.get_joints_pos() for _ in range(self.env.n_action_steps)])
 
         if self.current_command is None:
-            self.current_command = jnts_obs
+            self.current_command = self.env.get_joints_pos()
 
         # joy_state = self.get_joy_state(resetp=True)
         # dx, dq = joy_state['pos']
@@ -318,20 +348,33 @@ class DiffusionController(NodeParameterMixin,
         # self.publish_cartesian_commands(dx, dq)
 
         # jac
-        pos_x, pos_q = self.kdl.compute_fk(jnts_obs)
-        init_pos_x, init_pos_q = self.kdl.compute_fk(self.env.init_pos)
+        # pos_x, pos_q = self.kdl.compute_fk(jnts_obs)
+        # init_pos_x, init_pos_q = self.kdl.compute_fk(self.env.init_pos)
+        pos = obs["eef"]
+        assert len(pos) == 7
+        pos_x = pos[:3]
+        pos_q = pos[3:]
 
-        cur_pos = se3(*self.kdl.compute_fk(jnts_obs))
+        # cur_pos = se3(*self.kdl.compute_fk(jnts_obs))
 
         if self.env.queue_actions.empty():
             self.get_logger().info("Adding actions to buffer")
             with torch.no_grad():
                 stacked_obs = self.env.request_stacked_obs()
-                stacked_obs = stacked_obs.reshape(1, *self.stacked_obs.shape)
+                stacked_obs = dict_apply(stacked_obs, lambda x: x.reshape(1, *x.shape))
+
+                # print("To", To)
+                for key, value in stacked_obs.items():
+                    if key == "eef":
+                        continue
+                    stacked_obs[key] = np.transpose(stacked_obs[key], (0, 1, 4, 2, 3))
+                    print(key, stacked_obs[key].shape)
 
                 # device transfer
                 obs_dict = dict_apply(stacked_obs,
                                       lambda x: torch.from_numpy(x).cuda())
+                print(dict_apply(stacked_obs,  lambda x:x.shape))
+
                 action_dict = self.policy.predict_action(obs_dict)
                 np_action_dict = dict_apply(action_dict,
                                             lambda x: x.detach().to('cpu').numpy())
@@ -354,11 +397,17 @@ class DiffusionController(NodeParameterMixin,
         dx = (new_pos_x - pos_x)
         # dq_rot = (quat.from_float_array(pos_q).conjugate() * quat.from_float_array(init_pos_q))
         # dq_rot = (quat.from_float_array(init_pos_q) * quat.from_float_array(pos_q).conjugate())
-        dq_rot = new_pos.q * cur_pos.q.conjugate()
+        # print(new_pos.q, type(pos_q), type(pos_q.conjugate()))
+        print(new_pos.q)
+        new_pos_q = quat.from_float_array(new_pos_q)
+        pos_q = quat.from_float_array(pos_q)
+
+        dq_rot = new_pos_q * pos_q.conjugate()
+
         # dq_rot = quat.from_float_array([1,0,0,0])
         # self.get_logger().info(str(f"target new pos q: {new_pos_q}"))
 
-        self.get_logger().info(str(("Predicted actions: ", dx, dq_rot, pos_q)))
+        self.get_logger().info(str(("Predicted actions: ", dx, dq_rot, pos_q, new_pos_q)))
 
         J = np.array(self.kdl.compute_jacobian(jnts_obs))
         dq, *_ = np.linalg.lstsq(J, np.concatenate([dx, quat.as_rotation_vector(dq_rot)]))
@@ -366,6 +415,7 @@ class DiffusionController(NodeParameterMixin,
         if np.max(np.abs(dq)) < 1e-4:
             return
 
+        print(self.current_command, jnts_obs)
         self.current_command = (0.3 * self.current_command + 0.7 * jnts_obs) + dq
         # self.current_command = dq + jnts_obs
 
@@ -375,10 +425,10 @@ class DiffusionController(NodeParameterMixin,
 
 
 def main(args=None):
-    ckpt_path = "/home/ros/humble/src/diffusion_policy/results/22.12_faster_unet/checkpoints/latest.ckpt"
+    ckpt_path = "/home/ros/humble/src/diffusion_policy/data/outputs/2024.01.16/19.33.40_train_diffusion_unet_image_franka_kitchen_lowdim/checkpoints/latest.ckpt"
     n_obs_steps = 2
-    n_action_steps = 6
-    path_bag_robot_description = "/home/ros/humble/src/read-db/rosbag2_2024_01_11-17_13_10/"
+    n_action_steps = 8
+    path_bag_robot_description = "/home/ros/humble/src/read-db/rosbag2_2024_01_16-19_05_24/"
 
     payload = torch.load(open(ckpt_path, 'rb'), pickle_module=dill)
     cfg = payload['cfg']
