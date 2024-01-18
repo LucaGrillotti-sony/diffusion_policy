@@ -274,13 +274,13 @@ class TrainDiffusionTransformerLowdimWorkspace(BaseWorkspace):
                         new_key = key.replace('/', '_')
                         metric_dict[new_key] = value
                     
-                    # We can't copy the last checkpoint here
-                    # since save_checkpoint uses threads.
-                    # therefore at this point the file might have been empty!
-                    topk_ckpt_path = topk_manager.get_ckpt_path(metric_dict)
-
-                    if topk_ckpt_path is not None:
-                        self.save_checkpoint(path=topk_ckpt_path)
+                    # # We can't copy the last checkpoint here
+                    # # since save_checkpoint uses threads.
+                    # # therefore at this point the file might have been empty!
+                    # topk_ckpt_path = topk_manager.get_ckpt_path(metric_dict)
+                    #
+                    # if topk_ckpt_path is not None:
+                    #     self.save_checkpoint(path=topk_ckpt_path)
                 # ========= eval end for this epoch ==========
                 policy.train()
 

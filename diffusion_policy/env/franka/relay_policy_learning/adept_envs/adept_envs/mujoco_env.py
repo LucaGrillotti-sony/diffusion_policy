@@ -132,7 +132,9 @@ class MujocoEnv(gym.Env):
         return ob
 
     def set_state(self, qpos, qvel):
+        print(qpos.shape, self.model.nq, qvel.shape, self.model.nv)
         assert qpos.shape == (self.model.nq,) and qvel.shape == (self.model.nv,)
+
         # we are directly manipulating mujoco state here
         data = self.sim.data # MjData
         for i in range(self.model.nq):

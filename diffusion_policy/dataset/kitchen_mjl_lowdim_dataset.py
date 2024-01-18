@@ -21,50 +21,93 @@ class KitchenCustomDataset(BaseLowdimDataset):
             abs_action=True,
             robot_noise_ratio=0.0,
             seed=42,
-            val_ratio=0.0
+            val_ratio=0.0,
+            use_xyz=False,
+            use_end_effector=True,
         ):
         super().__init__()
 
         if not abs_action:
             raise NotImplementedError()
 
-        robot_pos_noise_amp = np.array([0.1   , 0.1   , 0.1   , 0.1   , 0.1   , 0.1   , 0.1   , 0.1   ,
-            0.1   , ], dtype=np.float32)
+        robot_pos_noise_amp = np.array([0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1], dtype=np.float32)
         rng = np.random.default_rng(seed=seed)
 
-        obs_size = 9
 
         data_directory = pathlib.Path(dataset_dir)
-        path_qpos = data_directory / "qpos.npy"
-        path_qvel = data_directory / "qvel.npy"
-        path_times = data_directory / "times.npy"
 
         self.replay_buffer = ReplayBuffer.create_empty_numpy()
-        for i in range(15):
+
+        if not use_xyz and not use_end_effector:
+            CARTESIAN_CONTROL_PATH = "all_joint_poses_with_time.npy"
+            obs_size = 7
+        elif not use_xyz and use_end_effector:
+            CARTESIAN_CONTROL_PATH = "end_effector_poses_with_time.npy"
+            obs_size = 7
+        else:
+            assert use_cartesian_control
+            CARTESIAN_CONTROL_PATH = "end_effector_poses_xyz_with_time.npy"
+            obs_size = 3
+        OBS_DATA_PATH = "obs_with_time.npy"
+
+        results_list = list(data_directory.glob(f'*/{CARTESIAN_CONTROL_PATH}'))
+
+        # NUMBER_REPEAT_OBS_WITH_NOISE = 50
+        NUMBER_REPEAT_OBS_WITH_NOISE = 1
+
+        for i, np_path in enumerate(tqdm(results_list)):
             try:
-                qpos = np.load(path_qpos).astype(np.float32)
-                times_array = np.load(path_times).astype(np.float32)
-                times_array = times_array - times_array[0]
-                qvel = np.load(path_qvel).astype(np.float32)
+                cartesian_control_with_time = np.load(np_path.absolute())
+                print("length trajectory", cartesian_control_with_time.shape[0])
+                cartesian_control = cartesian_control_with_time[:, 1:]
+                _res_folder = np_path.parents[0]
+                obs_path = _res_folder / OBS_DATA_PATH
+                times_to_evaluate = cartesian_control_with_time[:, 0].ravel()
+                obs = self.load_obs(obs_path, times_to_evaluate)
 
-                obs = qpos[:, :obs_size]
-                if robot_noise_ratio > 0:
-                    # add observation noise to match real robot
-                    noise = robot_noise_ratio * robot_pos_noise_amp * rng.uniform(
-                        low=-1., high=1., size=(obs.shape[0], obs_size))
-                    obs[:, :obs_size] += noise
+                assert obs.shape[1] == 9
+                obs = obs[:, :obs_size]  # TODO remove this line and do this in preprocessing
+                # for _ in range(NUMBER_REPEAT_OBS_WITH_NOISE):
+                #     obs_with_noise = obs + robot_pos_noise_amp * rng.uniform(low=-1., high=1., size=obs.shape)
+                #     episode = {
+                #         'obs': obs_with_noise.astype(np.float32),
+                #         'action': cartesian_control.astype(np.float32)
+                #     }
+                #     self.replay_buffer.add_episode(episode)
 
-                    TIME_NOISE = 0.1
-                    noise_time = TIME_NOISE * rng.uniform(low=-1, high=1, size=times_array.shape)
-                    times_array += noise_time
                 episode = {
-                    'obs': np.hstack([qpos, times_array.reshape(-1, 1)]),
-                    'action': obs,
+                    'obs': obs.astype(np.float32),
+                    'action': cartesian_control.astype(np.float32)
                 }
                 self.replay_buffer.add_episode(episode)
             except Exception as e:
                 print(i, e)
-                # print(e)
+
+        # for i in range(15):
+        #     try:
+        #         qpos = np.load(path_qpos).astype(np.float32)
+        #         times_array = np.load(path_times).astype(np.float32)
+        #         times_array = times_array - times_array[0]
+        #         qvel = np.load(path_qvel).astype(np.float32)
+        #
+        #         obs = qpos[:, :obs_size]
+        #         if robot_noise_ratio > 0:
+        #             # add observation noise to match real robot
+        #             noise = robot_noise_ratio * robot_pos_noise_amp * rng.uniform(
+        #                 low=-1., high=1., size=(obs.shape[0], obs_size))
+        #             obs[:, :obs_size] += noise
+        #
+        #             TIME_NOISE = 0.1
+        #             noise_time = TIME_NOISE * rng.uniform(low=-1, high=1, size=times_array.shape)
+        #             times_array += noise_time
+        #         episode = {
+        #             'obs': np.hstack([qpos, times_array.reshape(-1, 1)]),
+        #             'action': obs,
+        #         }
+        #         self.replay_buffer.add_episode(episode)
+        #     except Exception as e:
+        #         print(i, e)
+        #         # print(e)
 
         val_mask = get_val_mask(
             n_episodes=self.replay_buffer.n_episodes,
@@ -82,6 +125,25 @@ class KitchenCustomDataset(BaseLowdimDataset):
         self.horizon = horizon
         self.pad_before = pad_before
         self.pad_after = pad_after
+
+    def load_obs(self, obs_path: pathlib.Path, times_to_evaluate: np.ndarray):
+        obs_with_times = np.load(obs_path)
+        times = obs_with_times[:, 0].ravel()
+        obs = obs_with_times[:, 1:]
+        all_data = []
+        for col in range(obs.shape[1]):
+            _col_data = np.interp(
+                x=times_to_evaluate,
+                xp=times,
+                fp=obs[:, col].ravel(),
+            )
+            all_data.append(_col_data)
+        array_all_data = np.hstack(
+            [_col_data.reshape(-1, 1) for _col_data in all_data]
+        )
+        return array_all_data
+
+
 
     def get_validation_dataset(self):
         val_set = copy.copy(self)
