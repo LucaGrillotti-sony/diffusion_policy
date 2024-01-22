@@ -19,6 +19,7 @@ from gym import spaces
 
 from diffusion_policy.common.pytorch_util import dict_apply
 from diffusion_policy.env_runner.real_robot_runner import RealRobot
+from diffusion_policy.policy.diffusion_guided_ddim import DDIMGuidedScheduler
 from diffusion_policy.workspace.train_diffusion_transformer_lowdim_workspace import \
     TrainDiffusionTransformerLowdimWorkspace
 from diffusion_policy.workspace.train_diffusion_unet_lowdim_workspace import TrainDiffusionUnetLowdimWorkspace
@@ -436,6 +437,9 @@ def main(args=None):
     workspace = cls(cfg)
     workspace: BaseWorkspace
     workspace.load_payload(payload, exclude_keys=None, include_keys=None)
+    _config_noise_scheduler = {**copy.deepcopy(cfg.policy.noise_scheduler)}
+    del _config_noise_scheduler["_target_"]
+    workspace.model.noise_scheduler = DDIMGuidedScheduler(coefficient_reward=64., **_config_noise_scheduler)
 
     # workspace: BaseWorkspace = TrainDiffusionUnetLowdimWorkspace(cfg)
     # workspace.load_checkpoint()
@@ -443,7 +447,9 @@ def main(args=None):
     # workspace.model.cuda()
     # print(workspace.model.normalizer["obs"].params_dict["offset"])
 
-    workspace.model = torch.compile(workspace.model).cuda()
+
+    workspace.model = workspace.model.cuda()
+    # workspace.model = torch.compile(workspace.model).cuda()
 
     rclpy.init(args=args)
     try:

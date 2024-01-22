@@ -23,37 +23,10 @@ import numpy as np
 import torch
 
 from diffusers.configuration_utils import ConfigMixin, register_to_config
-from diffusers.schedulers.scheduling_ddim import DDIMSchedulerOutput
+from diffusers.schedulers.scheduling_ddim import DDIMSchedulerOutput, betas_for_alpha_bar, DDIMScheduler
 from diffusers.utils import _COMPATIBLE_STABLE_DIFFUSION_SCHEDULERS, BaseOutput, deprecate
 from diffusers.schedulers.scheduling_utils import SchedulerMixin
 
-def betas_for_alpha_bar(num_diffusion_timesteps, max_beta=0.999) -> torch.Tensor:
-    """
-    Create a beta schedule that discretizes the given alpha_t_bar function, which defines the cumulative product of
-    (1-beta) over time from t = [0,1].
-
-    Contains a function alpha_bar that takes an argument t and transforms it to the cumulative product of (1-beta) up
-    to that part of the diffusion process.
-
-
-    Args:
-        num_diffusion_timesteps (`int`): the number of betas to produce.
-        max_beta (`float`): the maximum beta to use; use values lower than 1 to
-                     prevent singularities.
-
-    Returns:
-        betas (`np.ndarray`): the betas used by the scheduler to step the model outputs
-    """
-
-    def alpha_bar(time_step):
-        return math.cos((time_step + 0.008) / 1.008 * math.pi / 2) ** 2
-
-    betas = []
-    for i in range(num_diffusion_timesteps):
-        t1 = i / num_diffusion_timesteps
-        t2 = (i + 1) / num_diffusion_timesteps
-        betas.append(min(1 - alpha_bar(t2) / alpha_bar(t1), max_beta))
-    return torch.tensor(betas)
 
 
 class DDIMGuidedScheduler(SchedulerMixin, ConfigMixin):
@@ -100,6 +73,7 @@ class DDIMGuidedScheduler(SchedulerMixin, ConfigMixin):
     @register_to_config
     def __init__(
         self,
+        coefficient_reward: float,
         num_train_timesteps: int = 1000,
         beta_start: float = 0.0001,
         beta_end: float = 0.02,
@@ -150,6 +124,8 @@ class DDIMGuidedScheduler(SchedulerMixin, ConfigMixin):
         self.num_inference_steps = None
         self.timesteps = torch.from_numpy(np.arange(0, num_train_timesteps)[::-1].copy().astype(np.int64))
 
+        self.coefficient_reward = coefficient_reward  # TODO calibrate
+
     def scale_model_input(self, sample: torch.FloatTensor, timestep: Optional[int] = None) -> torch.FloatTensor:
         """
         Ensures interchangeability with schedulers that need to scale the denoising model input depending on the
@@ -189,6 +165,14 @@ class DDIMGuidedScheduler(SchedulerMixin, ConfigMixin):
         timesteps = (np.arange(0, num_inference_steps) * step_ratio).round()[::-1].copy().astype(np.int64)
         self.timesteps = torch.from_numpy(timesteps).to(device)
         self.timesteps += self.config.steps_offset
+
+    @classmethod
+    def scoring_fn(cls, array_actions):
+        array_actions = array_actions[:,:3] # TODO: decide if we take 1st actions only
+        differences = array_actions[1:] - array_actions[:-1]
+        distances = torch.norm(differences, dim=-1)
+        mean_distance = torch.mean(distances)
+        return mean_distance
 
     def step(
         self,
@@ -282,7 +266,20 @@ class DDIMGuidedScheduler(SchedulerMixin, ConfigMixin):
             model_output = (sample - alpha_prod_t ** (0.5) * pred_original_sample) / beta_prod_t ** (0.5)
 
         # 6. compute "direction pointing to x_t" of formula (12) from https://arxiv.org/pdf/2010.02502.pdf
-        pred_sample_direction = (1 - alpha_prod_t_prev - std_dev_t**2) ** (0.5) * model_output
+        with torch.enable_grad():
+            array_actions = sample.clone().detach().requires_grad_(True)
+            if len(array_actions.shape) == 3:
+                score_actions = torch.vmap(self.scoring_fn)(array_actions)
+                mean_score = torch.mean(score_actions)
+            elif len(array_actions.shape) == 2:
+                mean_score = self.scoring_fn(array_actions)
+            else:
+                raise ValueError(f"Unsupported size: {array_actions.shape}")
+
+            gradient_classifier = torch.autograd.grad(mean_score, array_actions)[0]
+            guided_direction = ((1 - alpha_prod_t) ** 0.5) * self.coefficient_reward * gradient_classifier  # TODO no variance in this formula?
+            pred_sample_direction = (1 - alpha_prod_t_prev - std_dev_t**2) ** (0.5) * (model_output - guided_direction)
+            # pred_sample_direction = (1 - alpha_prod_t_prev - std_dev_t**2) ** (0.5) * (model_output)
 
         # 7. compute x_t without "random noise" of formula (12) from https://arxiv.org/pdf/2010.02502.pdf
         prev_sample = alpha_prod_t_prev ** (0.5) * pred_original_sample + pred_sample_direction
