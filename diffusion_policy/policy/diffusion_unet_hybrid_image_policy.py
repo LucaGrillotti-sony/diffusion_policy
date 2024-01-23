@@ -202,16 +202,18 @@ class DiffusionUnetHybridImagePolicy(BaseImagePolicy):
                 local_cond=local_cond, global_cond=global_cond)
 
             # 3. compute previous image: x_t -> x_t-1
-            trajectory = scheduler.step(
-                model_output, t, trajectory, 
+            output = scheduler.step(
+                model_output, t, trajectory,
                 generator=generator,
                 **kwargs
-                ).prev_sample
+                )
+            trajectory = output.prev_sample
+            metrics = output.metrics
         
         # finally make sure conditioning is enforced
         trajectory[condition_mask] = condition_data[condition_mask]        
 
-        return trajectory
+        return trajectory, metrics
 
 
     def predict_action(self, obs_dict: Dict[str, torch.Tensor]) -> Dict[str, torch.Tensor]:
@@ -257,7 +259,7 @@ class DiffusionUnetHybridImagePolicy(BaseImagePolicy):
             cond_mask[:,:To,Da:] = True
 
         # run sampling
-        nsample = self.conditional_sample(
+        nsample, metrics = self.conditional_sample(
             cond_data, 
             cond_mask,
             local_cond=local_cond,
@@ -271,11 +273,12 @@ class DiffusionUnetHybridImagePolicy(BaseImagePolicy):
         # get action
         start = To - 1
         end = start + self.n_action_steps
-        action = action_pred[:,start:end]
+        action = action_pred[:, start:end]
         
         result = {
             'action': action,
-            'action_pred': action_pred
+            'action_pred': action_pred,
+            'metrics': metrics,
         }
         return result
 

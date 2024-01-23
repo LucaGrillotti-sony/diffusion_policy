@@ -17,7 +17,7 @@
 
 import math
 from dataclasses import dataclass
-from typing import List, Optional, Tuple, Union
+from typing import List, Optional, Tuple, Union, Dict
 
 import numpy as np
 import torch
@@ -26,6 +26,13 @@ from diffusers.configuration_utils import ConfigMixin, register_to_config
 from diffusers.schedulers.scheduling_ddim import DDIMSchedulerOutput, betas_for_alpha_bar, DDIMScheduler
 from diffusers.utils import _COMPATIBLE_STABLE_DIFFUSION_SCHEDULERS, BaseOutput, deprecate
 from diffusers.schedulers.scheduling_utils import SchedulerMixin
+
+
+@dataclass
+class DDIMGuidedSchedulerOutput(BaseOutput):
+    prev_sample: torch.FloatTensor
+    metrics: dict
+    pred_original_sample: Optional[torch.FloatTensor] = None
 
 
 
@@ -168,7 +175,7 @@ class DDIMGuidedScheduler(SchedulerMixin, ConfigMixin):
 
     @classmethod
     def scoring_fn(cls, array_actions):
-        array_actions = array_actions[:,:3] # TODO: decide if we take 1st actions only
+        # array_actions = array_actions[:,:3] # TODO: decide if we take 1st actions only
         differences = array_actions[1:] - array_actions[:-1]
         distances = torch.norm(differences, dim=-1)
         mean_distance = torch.mean(distances)
@@ -184,7 +191,7 @@ class DDIMGuidedScheduler(SchedulerMixin, ConfigMixin):
         generator=None,
         variance_noise: Optional[torch.FloatTensor] = None,
         return_dict: bool = True,
-    ) -> Union[DDIMSchedulerOutput, Tuple]:
+    ) -> Union[DDIMGuidedSchedulerOutput, Tuple]:
         """
         Predict the sample at the previous timestep by reversing the SDE. Core function to propagate the diffusion
         process from the learned model outputs (most often the predicted noise).
@@ -211,6 +218,9 @@ class DDIMGuidedScheduler(SchedulerMixin, ConfigMixin):
             returning a tuple, the first element is the sample tensor.
 
         """
+
+        metrics = {}
+
         if self.num_inference_steps is None:
             raise ValueError(
                 "Number of inference steps is 'None', you need to run 'set_timesteps' after creating the scheduler"
@@ -268,8 +278,10 @@ class DDIMGuidedScheduler(SchedulerMixin, ConfigMixin):
         # 6. compute "direction pointing to x_t" of formula (12) from https://arxiv.org/pdf/2010.02502.pdf
         with torch.enable_grad():
             array_actions = sample.clone().detach().requires_grad_(True)
+            array_actions_xyz = array_actions[:, :3]
+
             if len(array_actions.shape) == 3:
-                score_actions = torch.vmap(self.scoring_fn)(array_actions)
+                score_actions = torch.vmap(self.scoring_fn)(array_actions_xyz)
                 mean_score = torch.mean(score_actions)
             elif len(array_actions.shape) == 2:
                 mean_score = self.scoring_fn(array_actions)
@@ -280,6 +292,11 @@ class DDIMGuidedScheduler(SchedulerMixin, ConfigMixin):
             guided_direction = ((1 - alpha_prod_t) ** 0.5) * self.coefficient_reward * gradient_classifier  # TODO no variance in this formula?
             pred_sample_direction = (1 - alpha_prod_t_prev - std_dev_t**2) ** (0.5) * (model_output - guided_direction)
             # pred_sample_direction = (1 - alpha_prod_t_prev - std_dev_t**2) ** (0.5) * (model_output)
+
+            metrics["score_actions"] = mean_score
+            metrics["gradient_norm_guided_direction"] = torch.norm(guided_direction)
+            metrics["gradient_norm_model_output"] = torch.norm(model_output)
+            metrics["coefficient_reward"] = torch.Tensor([self.coefficient_reward])
 
         # 7. compute x_t without "random noise" of formula (12) from https://arxiv.org/pdf/2010.02502.pdf
         prev_sample = alpha_prod_t_prev ** (0.5) * pred_original_sample + pred_sample_direction
@@ -309,7 +326,7 @@ class DDIMGuidedScheduler(SchedulerMixin, ConfigMixin):
         if not return_dict:
             return (prev_sample,)
 
-        return DDIMSchedulerOutput(prev_sample=prev_sample, pred_original_sample=pred_original_sample)
+        return DDIMGuidedSchedulerOutput(prev_sample=prev_sample, pred_original_sample=pred_original_sample, metrics=metrics)
 
     def add_noise(
         self,

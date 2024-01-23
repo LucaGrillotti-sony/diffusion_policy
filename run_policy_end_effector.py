@@ -15,7 +15,9 @@ import dill
 import click
 import gym
 import torch
+import wandb
 from gym import spaces
+from hydra.core.hydra_config import HydraConfig
 
 from diffusion_policy.common.pytorch_util import dict_apply
 from diffusion_policy.env_runner.real_robot_runner import RealRobot
@@ -381,6 +383,8 @@ class DiffusionController(NodeParameterMixin,
                                             lambda x: x.detach().to('cpu').numpy())
 
                 action = np_action_dict['action']
+                metrics = np_action_dict['metrics']
+                wandb.log(metrics)
                 array_dq = action.reshape(*action.shape[1:])
 
                 self.env.push_actions([_dq for _dq in array_dq])
@@ -425,6 +429,11 @@ class DiffusionController(NodeParameterMixin,
         self.env.step(self.current_command)
 
 
+@hydra.main(
+    version_base=None,
+    # config_path=str(pathlib.Path(__file__).parent.joinpath(
+    #     'diffusion_policy','config'))
+)
 def main(args=None):
     ckpt_path = "/home/ros/humble/src/diffusion_policy/data/outputs/2024.01.16/19.33.40_train_diffusion_unet_image_franka_kitchen_lowdim/checkpoints/latest.ckpt"
     n_obs_steps = 2
@@ -439,7 +448,15 @@ def main(args=None):
     workspace.load_payload(payload, exclude_keys=None, include_keys=None)
     _config_noise_scheduler = {**copy.deepcopy(cfg.policy.noise_scheduler)}
     del _config_noise_scheduler["_target_"]
-    workspace.model.noise_scheduler = DDIMGuidedScheduler(coefficient_reward=64., **_config_noise_scheduler)
+    workspace.model.noise_scheduler = DDIMGuidedScheduler(coefficient_reward=0., **_config_noise_scheduler)
+
+    # configure logging
+    output_dir = HydraConfig.get().runtime.output_dir
+    wandb.init(
+        dir=str(output_dir),
+        config=OmegaConf.to_container(cfg, resolve=True),
+        **cfg.logging
+    )
 
     # workspace: BaseWorkspace = TrainDiffusionUnetLowdimWorkspace(cfg)
     # workspace.load_checkpoint()
@@ -447,10 +464,10 @@ def main(args=None):
     # workspace.model.cuda()
     # print(workspace.model.normalizer["obs"].params_dict["offset"])
 
-
     workspace.model = workspace.model.cuda()
     # workspace.model = torch.compile(workspace.model).cuda()
 
+    args = None
     rclpy.init(args=args)
     try:
         nodes = [
