@@ -396,18 +396,29 @@ class DiffusionUnetHybridImagePolicy(BaseImagePolicy):
         else:
             raise ValueError(f"Unsupported prediction type {pred_type}")
 
-        diffusion_loss = F.mse_loss(pred, target, reduction='none')
-        diffusion_loss = diffusion_loss * loss_mask.type(diffusion_loss.dtype)
-        diffusion_loss = reduce(diffusion_loss, 'b ... -> b (...)', 'mean')
-        diffusion_loss = diffusion_loss.mean()
+        loss_diffusion = F.mse_loss(pred, target, reduction='none')
+        loss_diffusion = loss_diffusion * loss_mask.type(loss_diffusion.dtype)
+        loss_diffusion = reduce(loss_diffusion, 'b ... -> b (...)', 'mean')
+        loss_diffusion = loss_diffusion.mean()
 
         sample_actions = self.predict_action(batch['obs'])
-        score_loss = -1. * torch.vmap(DDIMGuidedScheduler.scoring_fn)(sample_actions['action_pred'])
-        score_loss = score_loss.mean()
+        scores = torch.vmap(DDIMGuidedScheduler.scoring_fn)(sample_actions['action_pred'])
+        loss_score = -1. * scores.mean()
 
-        loss = diffusion_loss + score_loss
+        with torch.no_grad():
+            score_dataset_actions = torch.vmap(DDIMGuidedScheduler.scoring_fn)(batch['action'])
+            score_dataset_actions = torch.mean(torch.abs(score_dataset_actions))
+        score_dataset_actions = score_dataset_actions.detach()
+
+        eta_coeff = 0.01  # todo: in config
+        alpha_coeff = eta_coeff / score_dataset_actions
+        loss_score = alpha_coeff * loss_score
+
+        loss = loss_diffusion + loss_score
         metrics = {
-            "diffusion_loss": diffusion_loss,
-            "score_loss": score_loss,
+            "diffusion_loss": loss_diffusion,
+            "score_loss": loss_score,
+            "alpha_coeff": alpha_coeff,
+            "scores": scores,
         }
         return loss, metrics

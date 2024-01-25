@@ -185,12 +185,13 @@ class DDIMGuidedScheduler(SchedulerMixin, ConfigMixin):
         # difference_speed_vectors = differences[1:] - differences[:-1]
         dot_product = torch.sum(differences[1:] * differences[:-1], dim=-1)
         cos_angle = dot_product / (torch.norm(differences[1:], dim=-1) * torch.norm(differences[:-1], dim=-1))
+        cos_angle = torch.where(torch.isnan(cos_angle), 0., cos_angle)
 
         mean_distance = torch.mean(distances)
         mean_cos_angle = torch.mean(cos_angle)
         # print("components scoring fn", mean_distance, mean_cos_angle)
 
-        return mean_distance + 0.05 * mean_cos_angle
+        return mean_distance + 0.05 * mean_cos_angle  # todo: coeff as hyperparameter
 
     def step(
         self,
