@@ -175,11 +175,22 @@ class DDIMGuidedScheduler(SchedulerMixin, ConfigMixin):
 
     @classmethod
     def scoring_fn(cls, array_actions):
-        # array_actions = array_actions[:,:3] # TODO: decide if we take 1st actions only
+        # array_actions = array_actions[]
+        array_actions = array_actions[:,:3] # TODO: decide if we take 1st actions only
         differences = array_actions[1:] - array_actions[:-1]
-        distances = torch.norm(differences, dim=-1)
+
+
+        distances = torch.norm(array_actions[0] - array_actions[-1], dim=-1)
+
+        # difference_speed_vectors = differences[1:] - differences[:-1]
+        dot_product = torch.sum(differences[1:] * differences[:-1], dim=-1)
+        cos_angle = dot_product / (torch.norm(differences[1:], dim=-1) * torch.norm(differences[:-1], dim=-1))
+
         mean_distance = torch.mean(distances)
-        return mean_distance
+        mean_cos_angle = torch.mean(cos_angle)
+        print("components scoring fn", mean_distance, mean_cos_angle)
+
+        return mean_distance + 0.05 * mean_cos_angle
 
     def step(
         self,
@@ -281,7 +292,7 @@ class DDIMGuidedScheduler(SchedulerMixin, ConfigMixin):
             array_actions_xyz = array_actions[:, :3]
 
             if len(array_actions.shape) == 3:
-                score_actions = torch.vmap(self.scoring_fn)(array_actions_xyz)
+                score_actions = torch.vmap(self.scoring_fn)(array_actions)
                 mean_score = torch.mean(score_actions)
             elif len(array_actions.shape) == 2:
                 mean_score = self.scoring_fn(array_actions)
@@ -290,8 +301,8 @@ class DDIMGuidedScheduler(SchedulerMixin, ConfigMixin):
 
             gradient_classifier = torch.autograd.grad(mean_score, array_actions)[0]
             guided_direction = ((1 - alpha_prod_t) ** 0.5) * self.coefficient_reward * gradient_classifier  # TODO no variance in this formula?
-            pred_sample_direction = (1 - alpha_prod_t_prev - std_dev_t**2) ** (0.5) * (model_output - guided_direction)
-            # pred_sample_direction = (1 - alpha_prod_t_prev - std_dev_t**2) ** (0.5) * (model_output)
+            # pred_sample_direction = (1 - alpha_prod_t_prev - std_dev_t**2) ** (0.5) * (model_output - guided_direction)
+            pred_sample_direction = (1 - alpha_prod_t_prev - std_dev_t**2) ** (0.5) * (model_output)
 
             metrics["score_actions"] = mean_score
             metrics["gradient_norm_guided_direction"] = torch.norm(guided_direction)
@@ -300,6 +311,19 @@ class DDIMGuidedScheduler(SchedulerMixin, ConfigMixin):
 
         # 7. compute x_t without "random noise" of formula (12) from https://arxiv.org/pdf/2010.02502.pdf
         prev_sample = alpha_prod_t_prev ** (0.5) * pred_original_sample + pred_sample_direction
+
+        #  # tests to see if the gradient classifier has an impact
+        # if timestep == 0:
+        #     with torch.enable_grad():
+        #         array_actions = prev_sample.clone().detach().requires_grad_(True)
+        #         for _ in range(100):
+        #             array_actions_xyz = array_actions[:, :3]
+        #             score_actions = torch.vmap(self.scoring_fn)(array_actions_xyz)
+        #             mean_score = torch.mean(score_actions)
+        #             print("mean score", mean_score)
+        #             gradient_classifier = torch.autograd.grad(mean_score, array_actions)[0]
+        #             array_actions = array_actions + 1 * gradient_classifier
+
 
         if eta > 0:
             # randn_like does not support generator https://github.com/pytorch/pytorch/issues/27072

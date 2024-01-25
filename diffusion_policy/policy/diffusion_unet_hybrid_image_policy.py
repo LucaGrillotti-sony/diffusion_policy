@@ -19,6 +19,7 @@ import robomimic.utils.obs_utils as ObsUtils
 import robomimic.models.base_nets as rmbn
 import diffusion_policy.model.vision.crop_randomizer as dmvc
 from diffusion_policy.common.pytorch_util import dict_apply, replace_submodules
+from diffusion_policy.policy.diffusion_guided_ddim import DDIMGuidedScheduler
 
 
 class DiffusionUnetHybridImagePolicy(BaseImagePolicy):
@@ -211,9 +212,52 @@ class DiffusionUnetHybridImagePolicy(BaseImagePolicy):
             metrics = output.metrics
         
         # finally make sure conditioning is enforced
-        trajectory[condition_mask] = condition_data[condition_mask]        
+        trajectory[condition_mask] = condition_data[condition_mask]
+
+        # maximize score
+        trajectory = self.optimize_trajectory(trajectory, local_cond, global_cond)
+        trajectory[condition_mask] = condition_data[condition_mask]  # TODO: should this also be done in simulation?
 
         return trajectory, metrics
+
+
+    def optimize_trajectory(self, trajectory, local_cond, global_cond):
+        learning_rate = 0.005
+        with torch.enable_grad():
+            if local_cond is not None:
+                local_cond = local_cond.clone().detach().requires_grad_(True)
+            if global_cond is not None:
+                global_cond = global_cond.clone().detach().requires_grad_(True)
+
+            # todo for testing only
+            # array_actions = trajectory.clone().detach().requires_grad_(True)
+            array_actions = torch.nn.Parameter(trajectory, requires_grad=True)
+            optimizer = torch.optim.Adam(params=[array_actions])
+
+            for index in range(100 + 1):
+                # array_actions = array_actions.clone().detach().requires_grad_(True)
+                optimizer.zero_grad()
+
+                # array_actions_xyz = array_actions[:, :3]
+                loss = self.loss_trajectory(array_actions, local_cond, global_cond)
+                loss = torch.mean(loss)
+
+                loss.backward()
+                optimizer.step()
+
+                # gradient_classifier = torch.autograd.grad(loss, array_actions)[0]
+                # array_actions = array_actions - learning_rate * gradient_classifier
+                if index % 100 == 0:
+                    print(index, loss)
+        return array_actions
+
+    def loss_trajectory(self, trajectory, local_cond, global_cond):
+        score_trajectory = DDIMGuidedScheduler.scoring_fn(trajectory[0])
+        norm_gradient_energy = torch.norm(self.model(trajectory, timestep=0,
+                local_cond=local_cond, global_cond=global_cond))
+        print("norm_gradient", norm_gradient_energy, "score traj", score_trajectory)
+        coefficient = 800.
+        return norm_gradient_energy - coefficient * score_trajectory
 
 
     def predict_action(self, obs_dict: Dict[str, torch.Tensor]) -> Dict[str, torch.Tensor]:
@@ -349,8 +393,16 @@ class DiffusionUnetHybridImagePolicy(BaseImagePolicy):
         else:
             raise ValueError(f"Unsupported prediction type {pred_type}")
 
-        loss = F.mse_loss(pred, target, reduction='none')
-        loss = loss * loss_mask.type(loss.dtype)
-        loss = reduce(loss, 'b ... -> b (...)', 'mean')
-        loss = loss.mean()
-        return loss
+        diffusion_loss = F.mse_loss(pred, target, reduction='none')
+        diffusion_loss = diffusion_loss * loss_mask.type(diffusion_loss.dtype)
+        diffusion_loss = reduce(diffusion_loss, 'b ... -> b (...)', 'mean')
+        diffusion_loss = diffusion_loss.mean()
+
+        score_loss =
+
+        loss = diffusion_loss + score_loss
+        metrics = {
+            "diffusion_loss": diffusion_loss,
+            "score_loss": score_loss,
+        }
+        return loss, metrics
