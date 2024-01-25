@@ -266,10 +266,10 @@ class DiffusionController(NodeParameterMixin,
         jpc_topic='/ruckig_controller/commands',
         jstate_topic='/joint_states',
         cartesian_control_topic='/cartesian_control',
-        camera_1_topic='/azure06/rgb/image_raw/compressed',
-        camera_2_topic='/azure07/rgb/image_raw/compressed',
-        camera_3_topic='/azure08/rgb/image_raw/compressed',
-        camera_0_topic='/d405rs01/color/image_rect_raw/compressed',
+        camera_0_topic='/azure06/rgb/image_raw/compressed',
+        camera_1_topic='/azure07/rgb/image_raw/compressed',
+        camera_2_topic='/azure08/rgb/image_raw/compressed',
+        camera_3_topic='/d405rs01/color/image_rect_raw/compressed',
     )
 
     def __init__(self, policy, n_obs_steps, n_action_steps, path_bag_robot_description, *args, node_name='robot_calibrator', **kwargs):
@@ -307,17 +307,18 @@ class DiffusionController(NodeParameterMixin,
         self.jstate_sub = self.create_subscription(
             JointState, self.jstate_topic, lambda msg: self.env.set_jstate(msg), 10)
 
+        self.camera_0_sub = self.create_subscription(
+            CompressedImage, self.camera_0_topic, lambda msg: self.env.set_camera_0_compressed_msg(msg), 10)
+
         self.camera_1_sub = self.create_subscription(
             CompressedImage, self.camera_1_topic, lambda msg: self.env.set_camera_1_compressed_msg(msg), 10)
 
         self.camera_2_sub = self.create_subscription(
-            CompressedImage, self.camera_1_topic, lambda msg: self.env.set_camera_2_compressed_msg(msg), 10)
+            CompressedImage, self.camera_2_topic, lambda msg: self.env.set_camera_2_compressed_msg(msg), 10)
 
         self.camera_3_sub = self.create_subscription(
-            CompressedImage, self.camera_1_topic, lambda msg: self.env.set_camera_3_compressed_msg(msg), 10)
+            CompressedImage, self.camera_3_topic, lambda msg: self.env.set_camera_3_compressed_msg(msg), 10)
 
-        self.camera_0_sub = self.create_subscription(
-            CompressedImage, self.camera_1_topic, lambda msg: self.env.set_camera_0_compressed_msg(msg), 10)
 
     def jpc_send_goal(self, jpos):
         msg = Float64MultiArray()
