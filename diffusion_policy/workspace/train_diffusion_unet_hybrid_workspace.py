@@ -238,7 +238,7 @@ class TrainDiffusionUnetHybridWorkspace(BaseWorkspace):
                             step_log['val_loss'] = val_loss
 
                             dict_metrics = custom_tree_map(
-                                lambda x: torch.mean(torch.tensor(x)).item(),
+                                lambda *x: torch.mean(torch.tensor(x)).item(),
                                 *list_metrics,
                             )
                             step_log.update(dict_metrics)

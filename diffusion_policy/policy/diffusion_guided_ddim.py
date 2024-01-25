@@ -188,7 +188,7 @@ class DDIMGuidedScheduler(SchedulerMixin, ConfigMixin):
 
         mean_distance = torch.mean(distances)
         mean_cos_angle = torch.mean(cos_angle)
-        print("components scoring fn", mean_distance, mean_cos_angle)
+        # print("components scoring fn", mean_distance, mean_cos_angle)
 
         return mean_distance + 0.05 * mean_cos_angle
 

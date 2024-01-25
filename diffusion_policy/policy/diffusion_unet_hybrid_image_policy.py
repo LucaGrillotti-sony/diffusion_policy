@@ -209,14 +209,17 @@ class DiffusionUnetHybridImagePolicy(BaseImagePolicy):
                 **kwargs
                 )
             trajectory = output.prev_sample
-            metrics = output.metrics
+            if hasattr(output, "metrics"):
+                metrics = output.metrics
+            else:
+                metrics = dict()
         
         # finally make sure conditioning is enforced
         trajectory[condition_mask] = condition_data[condition_mask]
 
-        # maximize score
-        trajectory = self.optimize_trajectory(trajectory, local_cond, global_cond)
-        trajectory[condition_mask] = condition_data[condition_mask]  # TODO: should this also be done in simulation?
+        # # maximize score
+        # trajectory = self.optimize_trajectory(trajectory, local_cond, global_cond)
+        # trajectory[condition_mask] = condition_data[condition_mask]  # TODO: should this also be done in simulation?
 
         return trajectory, metrics
 
