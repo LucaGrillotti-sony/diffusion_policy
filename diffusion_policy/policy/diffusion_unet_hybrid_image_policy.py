@@ -398,7 +398,9 @@ class DiffusionUnetHybridImagePolicy(BaseImagePolicy):
         diffusion_loss = reduce(diffusion_loss, 'b ... -> b (...)', 'mean')
         diffusion_loss = diffusion_loss.mean()
 
-        score_loss =
+        sample_actions = self.predict_action(batch['obs'])
+        score_loss = -1. * torch.vmap(DDIMGuidedScheduler.scoring_fn)(sample_actions['action_pred'])
+        score_loss = score_loss.mean()
 
         loss = diffusion_loss + score_loss
         metrics = {

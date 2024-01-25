@@ -15,6 +15,24 @@ def dict_apply(
             result[key] = func(value)
     return result
 
+def custom_tree_map(
+        func: Callable[[Dict, ...], torch.Tensor],
+        *args,
+        ) -> Dict:
+
+    assert len(args) > 0
+    x = args[0]
+    if isinstance(x, dict):
+        keys = x.keys()
+        d = dict()
+        for k in keys:
+            values_args = (_arg[k] for _arg in args)
+            value_k = custom_tree_map(func, *values_args)
+            d[k] = value_k
+        return d
+    else:
+        return func(*args)
+
 def pad_remaining_dims(x, target):
     assert x.shape == target.shape[:len(x.shape)]
     return x.reshape(x.shape + (1,)*(len(target.shape) - len(x.shape)))
@@ -80,3 +98,12 @@ def optimizer_to(optimizer, device):
             if isinstance(v, torch.Tensor):
                 state[k] = v.to(device=device)
     return optimizer
+
+
+def test():
+    res = custom_tree_map(lambda x, y: x+y, {'a': 1, 'b': 2}, {'a': 3, 'b': 4})
+    print(res)
+
+
+if __name__ == '__main__':
+    test()
