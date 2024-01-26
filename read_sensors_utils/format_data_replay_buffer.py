@@ -197,24 +197,25 @@ def treat_folder(path_load, path_save, index_episode):
 
     print("Collecting Data")
     images_azure_06 = parser.get_messages("/azure06/rgb/image_raw/compressed")
-    images_azure_07 = parser.get_messages("/azure07/rgb/image_raw/compressed")
-    images_azure_08 = parser.get_messages("/azure08/rgb/image_raw/compressed")
+    # images_azure_07 = parser.get_messages("/azure07/rgb/image_raw/compressed")
+    # images_azure_08 = parser.get_messages("/azure08/rgb/image_raw/compressed")
     images_hand_eye = parser.get_messages("/d405rs01/color/image_rect_raw/compressed")
 
-    start_time = max(images_azure_06[0][0], images_azure_07[0][0], images_azure_08[0][0], images_hand_eye[0][0]) / 1e9
+    # start_time = max(images_azure_06[0][0], images_azure_07[0][0], images_azure_08[0][0], images_hand_eye[0][0]) / 1e9
+    start_time = max(images_azure_06[0][0], images_hand_eye[0][0]) / 1e9
 
     # Converting to numpy arrays
     print("Converting Data to Numpy Arrays and reshape")
     data_img = dict()
     data_img["azure_06"] = get_list_data_img(cv_bridge, images_azure_06, time_offset=start_time)
-    data_img["azure_07"] = get_list_data_img(cv_bridge, images_azure_07, time_offset=start_time)
-    data_img["azure_08"] = get_list_data_img(cv_bridge, images_azure_08, time_offset=start_time)
+    # data_img["azure_07"] = get_list_data_img(cv_bridge, images_azure_07, time_offset=start_time)
+    # data_img["azure_08"] = get_list_data_img(cv_bridge, images_azure_08, time_offset=start_time)
     data_img["images_hand_eye"] = get_list_data_img(cv_bridge, images_hand_eye, time_offset=start_time)
 
     fps_dict = dict()
     fps_dict["azure_06"] = 30
-    fps_dict["azure_07"] = 30
-    fps_dict["azure_08"] = 30
+    # fps_dict["azure_07"] = 30
+    # fps_dict["azure_08"] = 30
     fps_dict["images_hand_eye"] = 15
 
     max_time = min(_data_list[-1].timestamp for _data_list in data_img.values())
