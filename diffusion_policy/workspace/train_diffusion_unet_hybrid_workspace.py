@@ -164,7 +164,9 @@ class TrainDiffusionUnetHybridWorkspace(BaseWorkspace):
 
                         # compute loss
                         raw_loss, _metrics_training = self.model.compute_loss(batch)
-                        loss = raw_loss / cfg.training.gradient_accumulate_every
+                        raw_critic_loss, _metrics_critic_training = self.model.compute_critic_loss(batch, ema_model=self.ema_model)
+
+                        loss = (raw_loss + raw_critic_loss) / cfg.training.gradient_accumulate_every
                         loss.backward()
 
                         # step optimizer
@@ -187,6 +189,7 @@ class TrainDiffusionUnetHybridWorkspace(BaseWorkspace):
                             'epoch': self.epoch,
                             'lr': lr_scheduler.get_last_lr()[0],
                             **_metrics_training,
+                            **_metrics_critic_training,
                         }
 
                         is_last_batch = (batch_idx == (len(train_dataloader)-1))

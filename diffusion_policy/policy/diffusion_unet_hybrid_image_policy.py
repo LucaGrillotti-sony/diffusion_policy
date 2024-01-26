@@ -509,7 +509,11 @@ class DiffusionUnetHybridImagePolicy(BaseImagePolicy):
                         F.mse_loss(critic_values_2, critic_target_values, reduction='none')
         loss_critic = loss_critic.mean()
 
-        return loss_critic
+        metrics = {
+            "critic_loss": loss_critic,
+        }
+
+        return loss_critic, metrics
 
 
 
