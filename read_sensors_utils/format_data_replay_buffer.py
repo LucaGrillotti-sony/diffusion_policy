@@ -33,6 +33,10 @@ from numcodecs.abc import Codec
 import quaternion as quat
 
 
+CURRENT_EEF_POS_INTERPOLATED = "current_eef_pos_interpolated.npy"
+TARGET_EEF_POS_INTERPOLATED = "target_end_effector_pos_interpolated.npy"
+
+
 def protective_squeeze(x: np.ndarray):
     """
     Squeeze dim only if it's not the last dim.
@@ -264,9 +268,9 @@ def treat_folder(path_load, path_save, index_episode):
     # saving array actions
     _path_folder = path_save / "actions" / str(index_episode)
     _path_folder.mkdir(exist_ok=True, parents=True)
-    np.save(file=_path_folder / "target_end_effector_pos_interpolated.npy",
+    np.save(file=_path_folder / TARGET_EEF_POS_INTERPOLATED,
             arr=target_end_effector_pos_interpolated)
-    np.save(file=_path_folder / "current_eef_pos_interpolated.npy",
+    np.save(file=_path_folder / CURRENT_EEF_POS_INTERPOLATED,
             arr=current_eef_pos_interpolated)
 
 

@@ -5,7 +5,7 @@ import numpy as np
 from read_sensors_utils.format_data_replay_buffer import interpolate
 
 
-def show_video(video_path, save_path, number_total_actions=None, new_fps=10):
+def annotate_video(video_path, save_path, number_total_actions=None, new_fps=10):
     import cv2
     import sys
 
@@ -99,7 +99,7 @@ def main():
     # Replace 'your_video.mp4' with the path to your video file
     video_path = 'your_video.mp4'
     save_path = 'is_scooped_booleans.npy'
-    show_video(video_path, save_path)
+    annotate_video(video_path, save_path)
 
 
 if __name__ == '__main__':
