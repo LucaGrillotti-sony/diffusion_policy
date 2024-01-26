@@ -2,8 +2,10 @@ import cv2
 import matplotlib.pyplot as plt
 import numpy as np
 
+from read_sensors_utils.format_data_replay_buffer import interpolate
 
-def show_video(video_path, save_path):
+
+def show_video(video_path, save_path, number_total_actions=None, new_fps=10):
     import cv2
     import sys
 
@@ -15,6 +17,11 @@ def show_video(video_path, save_path):
 
     # retrieve the total number of frames
     frame_count = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+    fps = int(cap.get(cv2.CAP_PROP_FPS))
+
+    new_timesteps = np.arange(0, frame_count / fps, step=1./new_fps)
+
+    assert len(new_timesteps) == number_total_actions
 
     is_scooped_booleans = []
 
@@ -73,7 +80,15 @@ def show_video(video_path, save_path):
         index += 1
 
     array_of_booleans = np.asarray(is_scooped_booleans)
-    np.save(save_path, array_of_booleans)
+    current_timesteps = np.arange(0, array_of_booleans.shape[0] / fps, step=1./fps)
+    new_fps = 10
+    new_timesteps = np.arange(0, array_of_booleans.shape[0] / fps, step=1./new_fps)
+
+    assert len(new_timesteps) == number_total_actions
+
+    booleans_interpolated = interpolate(x=current_timesteps, y=array_of_booleans, new_x=new_timesteps)
+
+    np.save(save_path, booleans_interpolated)
 
     # release resources
     cap.release()
