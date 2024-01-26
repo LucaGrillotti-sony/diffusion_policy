@@ -81,18 +81,18 @@ policy:
           - 240
           - 320
         type: rgb
-      camera_2:
-        shape:
-          - 3
-          - 240
-          - 320
-        type: rgb
-      camera_3:
-        shape:
-          - 3
-          - 240
-          - 320
-        type: rgb
+#      camera_2:
+#        shape:
+#          - 3
+#          - 240
+#          - 320
+#        type: rgb
+#      camera_3:
+#        shape:
+#          - 3
+#          - 240
+#          - 320
+#        type: rgb
       eef:
         shape:
           - 7
@@ -135,23 +135,23 @@ task:
             - 240
             - 320
           type: rgb
-        camera_2:
-          shape:
-            - 3
-            - 240
-            - 320
-          type: rgb
-        camera_3:
-          shape:
-            - 3
-            - 240
-            - 320
-          type: rgb
+#        camera_2:
+#          shape:
+#            - 3
+#            - 240
+#            - 320
+#          type: rgb
+#        camera_3:
+#          shape:
+#            - 3
+#            - 240
+#            - 320
+#          type: rgb
         eef:
           shape:
             - 7
           type: low_dim
-    dataset_path: data/test_dataset
+    dataset_path: data/smaller_dataset
     dt: 0.1
     horizon: 16
     n_obs_steps: 2
@@ -177,11 +177,11 @@ training:
   num_epochs: 8000
   resume: true
   rollout_every: 50
-  sample_every: 5
+  sample_every: 1
   seed: 42
   tqdm_interval_sec: 1.0
   use_ema: true
-  val_every: 5
+  val_every: 1
 val_dataloader:
   batch_size: 32
   num_workers: 8

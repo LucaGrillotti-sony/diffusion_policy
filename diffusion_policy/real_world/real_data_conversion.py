@@ -236,14 +236,16 @@ def create_zarr_action_dataset(dataset_path: str,):
 
 
 def test_real_data_conversion():
-    dataset_path = pathlib.Path("/home/lucagrillotti/ros/humble/src/diffusion_policy/data/test_dataset/")
+    # dataset_path = pathlib.Path("/home/lucagrillotti/ros/humble/src/diffusion_policy/data/test_dataset/")
+    dataset_path = pathlib.Path("/home/lucagrillotti/ros/humble/src/diffusion_policy/data/smaller_dataset/")
     output_path = dataset_path / "replay_buffer_final.zarr.zip"
     assert output_path.suffix == ".zip"
     cv2.setNumThreads(1)
     with threadpool_limits(1):
         create_zarr_action_dataset(dataset_path=dataset_path)
         replay_buffer = real_data_to_replay_buffer(dataset_path=dataset_path,
-                                                   image_keys=tuple(f"{index}" for index in range(4)), # 3 because there are 3 cameras
+                                                   # image_keys=tuple(f"{index}" for index in range(4)), # 3 because there are 3 cameras
+                                                   image_keys=tuple(f"{index}" for index in range(2)), # 3 because there are 3 cameras
                                                    dt=0.1,
                                                    )
 

@@ -259,7 +259,7 @@ class DiffusionUnetHybridImagePolicy(BaseImagePolicy):
         norm_gradient_energy = torch.norm(self.model(trajectory, timestep=0,
                 local_cond=local_cond, global_cond=global_cond))
         print("norm_gradient", norm_gradient_energy, "score traj", score_trajectory)
-        coefficient = 800.
+        coefficient = 800.  # todo
         return norm_gradient_energy - coefficient * score_trajectory
 
 
@@ -410,7 +410,8 @@ class DiffusionUnetHybridImagePolicy(BaseImagePolicy):
             score_dataset_actions = torch.mean(torch.abs(score_dataset_actions))
         score_dataset_actions = score_dataset_actions.detach()
 
-        eta_coeff = 0.01  # todo: in config
+        # eta_coeff = 0.0  # todo: in config
+        eta_coeff = 0.0001  # todo: in config
         alpha_coeff = eta_coeff / score_dataset_actions
         loss_score = alpha_coeff * loss_score
 
@@ -419,6 +420,6 @@ class DiffusionUnetHybridImagePolicy(BaseImagePolicy):
             "diffusion_loss": loss_diffusion,
             "score_loss": loss_score,
             "alpha_coeff": alpha_coeff,
-            "scores": scores,
+            "scores": scores.mean(),
         }
         return loss, metrics

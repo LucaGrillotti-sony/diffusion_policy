@@ -180,7 +180,7 @@ class DDIMGuidedScheduler(SchedulerMixin, ConfigMixin):
         differences = array_actions[1:] - array_actions[:-1]
 
 
-        distances = torch.norm(array_actions[0] - array_actions[-1], dim=-1)
+        distances = torch.norm(array_actions[0] - array_actions[-1], dim=-1) / (len(array_actions) - 1)
 
         # difference_speed_vectors = differences[1:] - differences[:-1]
         dot_product = torch.sum(differences[1:] * differences[:-1], dim=-1)
