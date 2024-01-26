@@ -34,6 +34,7 @@ class RealFrankaImageDataset(BaseImageDataset):
             pad_before=0,
             pad_after=0,
             n_obs_steps=None,
+            n_action_steps=None,
             n_latency_steps=0,
             use_cache=False,
             seed=42,
@@ -144,6 +145,7 @@ class RealFrankaImageDataset(BaseImageDataset):
         self.rgb_keys = rgb_keys
         self.lowdim_keys = lowdim_keys
         self.n_obs_steps = n_obs_steps
+        self.n_action_steps = n_action_steps
         self.val_mask = val_mask
         self.horizon = horizon
         self.n_latency_steps = n_latency_steps
@@ -194,19 +196,24 @@ class RealFrankaImageDataset(BaseImageDataset):
         # when self.n_obs_steps is None
         # this slice does nothing (takes all)
         T_slice = slice(self.n_obs_steps)
+        next_T_slice = slice(self.n_action_steps, self.n_obs_steps+self.n_action_steps)
 
         obs_dict = dict()
+        next_obs_dict = dict()
         for key in self.rgb_keys:
             # move channel last to channel first
             # T,H,W,C
             # convert uint8 image to float32
             obs_dict[key] = np.moveaxis(data[key][T_slice],-1,1
                 ).astype(np.float32) / 255.
+            next_obs_dict[key] = np.moveaxis(data[key][next_T_slice], -1, 1
+                ).astype(np.float32) / 255.
             # T,C,H,W
             # save ram
             del data[key]
         for key in self.lowdim_keys:
             obs_dict[key] = data[key][T_slice].astype(np.float32)
+            next_obs_dict[key] = data[key][next_T_slice].astype(np.float32)
             # save ram
             del data[key]
         
@@ -214,11 +221,14 @@ class RealFrankaImageDataset(BaseImageDataset):
         # handle latency by dropping first n_latency_steps action
         # observations are already taken care of by T_slice
         if self.n_latency_steps > 0:
-            action = action[self.n_latency_steps:]
+            action = action[self.n_latency_steps:self.n_latency_steps+self.horizon]
+        else:
+            action = action[:self.horizon]
 
         torch_data = {
             'obs': dict_apply(obs_dict, torch.from_numpy),
-            'action': torch.from_numpy(action)
+            'action': torch.from_numpy(action),
+            'next_obs': dict_apply(next_obs_dict, torch.from_numpy),
         }
         return torch_data
 

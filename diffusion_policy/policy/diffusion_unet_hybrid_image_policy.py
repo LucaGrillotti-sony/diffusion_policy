@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from typing import Dict
 import math
 
@@ -9,6 +11,7 @@ from einops import rearrange, reduce
 from diffusers.schedulers.scheduling_ddpm import DDPMScheduler
 
 from diffusion_policy.model.common.normalizer import LinearNormalizer
+from diffusion_policy.model.diffusion.conditional_unet1d_critic import ConditionalUnet1DCritic
 from diffusion_policy.policy.base_image_policy import BaseImagePolicy
 from diffusion_policy.model.diffusion.conditional_unet1d import ConditionalUnet1D
 from diffusion_policy.model.diffusion.mask_generator import LowdimMaskGenerator
@@ -39,6 +42,7 @@ class DiffusionUnetHybridImagePolicy(BaseImagePolicy):
             cond_predict_scale=True,
             obs_encoder_group_norm=False,
             eval_fixed_crop=False,
+            gamma=0.99,
             # parameters passed to step
             **kwargs):
         super().__init__()
@@ -102,6 +106,7 @@ class DiffusionUnetHybridImagePolicy(BaseImagePolicy):
                 device='cpu',
             )
 
+
         obs_encoder = policy.nets['policy'].nets['encoder'].nets['obs']
         
         if obs_encoder_group_norm:
@@ -147,6 +152,29 @@ class DiffusionUnetHybridImagePolicy(BaseImagePolicy):
             n_groups=n_groups,
             cond_predict_scale=cond_predict_scale
         )
+
+        self.critic_model_1 = ConditionalUnet1DCritic(
+            input_dim=action_dim,
+            local_cond_dim=None,
+            global_cond_dim=global_cond_dim,
+            diffusion_step_embed_dim=diffusion_step_embed_dim,
+            down_dims=down_dims,
+            kernel_size=kernel_size,
+            n_groups=n_groups,
+            cond_predict_scale=cond_predict_scale
+        )
+
+        self.critic_model_2 = ConditionalUnet1DCritic(
+            input_dim=action_dim,
+            local_cond_dim=None,
+            global_cond_dim=global_cond_dim,
+            diffusion_step_embed_dim=diffusion_step_embed_dim,
+            down_dims=down_dims,
+            kernel_size=kernel_size,
+            n_groups=n_groups,
+            cond_predict_scale=cond_predict_scale
+        )
+        self.gamma = gamma
 
         self.obs_encoder = obs_encoder
         self.model = model
@@ -422,3 +450,81 @@ class DiffusionUnetHybridImagePolicy(BaseImagePolicy):
             "scores": scores,
         }
         return loss, metrics
+
+    def calculate_reward(self, obs, action, next_obs):
+        start_index = self.n_obs_steps - 1
+        end_index = start_index + self.n_action_steps
+        rewards = torch.vmap(DDIMGuidedScheduler.scoring_fn)(action[:, start_index:end_index])
+        return rewards
+
+    def compute_critic_loss(self, batch, ema_model: DiffusionUnetHybridImagePolicy):
+        # normalize input
+        assert 'valid_mask' not in batch
+        nobs = self.normalizer.normalize(batch['obs'])
+        nactions = self.normalizer['action'].normalize(batch['action'])
+        batch_size = nactions.shape[0]
+        horizon = nactions.shape[1]
+
+        # handle different ways of passing observation
+        local_cond = None
+        global_cond = None
+        trajectory = nactions
+        cond_data = trajectory
+        if self.obs_as_global_cond:
+            # reshape B, T, ... to B*T
+            this_nobs = dict_apply(nobs,
+                lambda x: x[:, :self.n_obs_steps, ...].reshape(-1, *x.shape[2:]))
+            nobs_features = self.obs_encoder(this_nobs)
+            # reshape back to B, Do
+            global_cond = nobs_features.reshape(batch_size, -1)
+        else:
+            # reshape B, T, ... to B*T
+            this_nobs = dict_apply(nobs, lambda x: x.reshape(-1, *x.shape[2:]))
+            nobs_features = self.obs_encoder(this_nobs)
+            # reshape back to B, T, Do
+            nobs_features = nobs_features.reshape(batch_size, horizon, -1)
+            cond_data = torch.cat([nactions, nobs_features], dim=-1)
+            trajectory = cond_data.detach()
+
+        next_obs = batch['next_obs']
+        rewards = self.calculate_reward(batch['obs'], batch['action'], next_obs)
+        gamma = self.gamma
+
+        # generate impainting mask
+        condition_mask = self.mask_generator(trajectory.shape)  # todo What to do with this?
+
+        critic_values_1 = self.critic_model_1(nactions, local_cond=local_cond, global_cond=global_cond)
+        critic_values_2 = self.critic_model_2(nactions, local_cond=local_cond, global_cond=global_cond)
+
+        actions_target = ema_model.predict_action(next_obs)
+        nactions_target = self.normalizer['action'].normalize(actions_target['action'])
+        critic_target_values_1 = ema_model.critic_model_1(nactions_target, local_cond=local_cond, global_cond=global_cond)
+        critic_target_values_2 = ema_model.critic_model_2(nactions_target, local_cond=local_cond, global_cond=global_cond)
+        concat_critic_target_values = torch.cat([critic_target_values_1, critic_target_values_2], dim=-1)
+        critic_target_values = torch.min(concat_critic_target_values, dim=-1)
+        critic_target_values = rewards + gamma * critic_target_values
+        critic_target_values = critic_target_values.detach()
+
+        loss_critic = F.mse_loss(critic_values_1, critic_target_values, reduction='none') + \
+                        F.mse_loss(critic_values_2, critic_target_values, reduction='none')
+        loss_critic = loss_critic.mean()
+
+        return loss_critic
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
