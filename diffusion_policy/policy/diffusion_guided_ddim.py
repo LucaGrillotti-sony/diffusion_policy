@@ -174,24 +174,60 @@ class DDIMGuidedScheduler(SchedulerMixin, ConfigMixin):
         self.timesteps += self.config.steps_offset
 
     @classmethod
-    def scoring_fn(cls, array_actions):
+    def scoring_fn(cls, array_actions, n_horizon, n_actions, n_obs):
+        coeff_speed = 1. # TODO: hyperparameter
+        coeff_acceleration = 1.
+
+        assert array_actions.shape[-1] == n_horizon
+
+        array_actions = array_actions[:, n_obs:]
+        assert array_actions.shape[-1] > n_actions
+
         # array_actions = array_actions[]
         array_actions = array_actions[:,:3] # TODO: decide if we take 1st actions only
         differences = array_actions[1:] - array_actions[:-1]
 
+        # distances = torch.norm(array_actions[0] - array_actions[-1], dim=-1) / (len(array_actions) - 1)
+        speeds = torch.norm(differences, dim=-1)
+        mean_speed = torch.mean(speeds * speeds)
 
-        distances = torch.norm(array_actions[0] - array_actions[-1], dim=-1) / (len(array_actions) - 1)
+        accelerations = speeds[1:] - speeds[:-1]
+        norm_accelerations = torch.norm(accelerations, dim=-1)
+        neg_mean_acc = -1. * torch.mean(norm_accelerations * norm_accelerations)
 
         # difference_speed_vectors = differences[1:] - differences[:-1]
-        dot_product = torch.sum(differences[1:] * differences[:-1], dim=-1)
-        cos_angle = dot_product / (torch.norm(differences[1:], dim=-1) * torch.norm(differences[:-1], dim=-1))
-        cos_angle = torch.where(torch.isnan(cos_angle), 0., cos_angle)
-
-        mean_distance = torch.mean(distances)
-        mean_cos_angle = torch.mean(cos_angle)
+        # dot_product = torch.sum(differences[1:] * differences[:-1], dim=-1)
+        # cos_angle = dot_product / (torch.norm(differences[1:], dim=-1) * torch.norm(differences[:-1], dim=-1))
+        # cos_angle = torch.where(torch.isnan(cos_angle), 0., cos_angle)
+        #
+        # mean_cos_angle = torch.mean(cos_angle)
         # print("components scoring fn", mean_distance, mean_cos_angle)
 
-        return mean_distance + 0.05 * mean_cos_angle  # todo: coeff as hyperparameter
+        dict_reward = {
+            "mean_speed": mean_speed,
+            "neg_mean_acc": neg_mean_acc,
+            # "mean_cos_angle": mean_cos_angle,
+        }
+
+        dict_coeffificients = {
+            "coeff_speed": coeff_speed,
+            "coeff_acceleration": coeff_acceleration,
+            # "coeff_cos_angle": 0.05,  # TODO: hyperparameter
+        }
+
+        dict_rescaled_reward = {
+            f"rescaled_{key}": value * dict_coeffificients[f"coeff_{key}"] for key, value in dict_reward.items()
+        }
+
+        for key, value in dict_reward.items():
+            dict_reward[f"rescaled_{key}"] = value * dict_coeffificients[f"coeff_{key}"]
+
+        metrics = {**dict_reward, **dict_coeffificients}
+
+        for key, value in dict_rescaled_reward.items():
+            metrics[key] = value.detach().cpu().numpy()
+
+        return sum(dict_rescaled_reward.values()), metrics
 
     def step(
         self,
@@ -288,27 +324,31 @@ class DDIMGuidedScheduler(SchedulerMixin, ConfigMixin):
             model_output = (sample - alpha_prod_t ** (0.5) * pred_original_sample) / beta_prod_t ** (0.5)
 
         # 6. compute "direction pointing to x_t" of formula (12) from https://arxiv.org/pdf/2010.02502.pdf
-        with torch.enable_grad():
-            array_actions = sample.clone().detach().requires_grad_(True)
-            array_actions_xyz = array_actions[:, :3]
 
-            if len(array_actions.shape) == 3:
-                score_actions = torch.vmap(self.scoring_fn)(array_actions)
-                mean_score = torch.mean(score_actions)
-            elif len(array_actions.shape) == 2:
-                mean_score = self.scoring_fn(array_actions)
-            else:
-                raise ValueError(f"Unsupported size: {array_actions.shape}")
+        # Implementing the classifier-guided sampling
+        # with torch.enable_grad():
+        #     array_actions = sample.clone().detach().requires_grad_(True)
+        #     array_actions_xyz = array_actions[:, :3]
+        #
+        #     if len(array_actions.shape) == 3:
+        #         score_actions = torch.vmap(self.scoring_fn)(array_actions)
+        #         mean_score = torch.mean(score_actions)
+        #     elif len(array_actions.shape) == 2:
+        #         mean_score = self.scoring_fn(array_actions)
+        #     else:
+        #         raise ValueError(f"Unsupported size: {array_actions.shape}")
+        #
+        #     gradient_classifier = torch.autograd.grad(mean_score, array_actions)[0]
+        #     guided_direction = ((1 - alpha_prod_t) ** 0.5) * self.coefficient_reward * gradient_classifier  # TODO no variance in this formula?
+        #     # pred_sample_direction = (1 - alpha_prod_t_prev - std_dev_t**2) ** (0.5) * (model_output - guided_direction)
+        #     pred_sample_direction = (1 - alpha_prod_t_prev - std_dev_t**2) ** (0.5) * (model_output)
+        #
+        #     metrics["score_actions"] = mean_score
+        #     metrics["gradient_norm_guided_direction"] = torch.norm(guided_direction)
+        #     metrics["gradient_norm_model_output"] = torch.norm(model_output)
+        #     metrics["coefficient_reward"] = torch.Tensor([self.coefficient_reward])
 
-            gradient_classifier = torch.autograd.grad(mean_score, array_actions)[0]
-            guided_direction = ((1 - alpha_prod_t) ** 0.5) * self.coefficient_reward * gradient_classifier  # TODO no variance in this formula?
-            # pred_sample_direction = (1 - alpha_prod_t_prev - std_dev_t**2) ** (0.5) * (model_output - guided_direction)
-            pred_sample_direction = (1 - alpha_prod_t_prev - std_dev_t**2) ** (0.5) * (model_output)
-
-            metrics["score_actions"] = mean_score
-            metrics["gradient_norm_guided_direction"] = torch.norm(guided_direction)
-            metrics["gradient_norm_model_output"] = torch.norm(model_output)
-            metrics["coefficient_reward"] = torch.Tensor([self.coefficient_reward])
+        pred_sample_direction = (1 - alpha_prod_t_prev - std_dev_t ** 2) ** (0.5) * (model_output)
 
         # 7. compute x_t without "random noise" of formula (12) from https://arxiv.org/pdf/2010.02502.pdf
         prev_sample = alpha_prod_t_prev ** (0.5) * pred_original_sample + pred_sample_direction
