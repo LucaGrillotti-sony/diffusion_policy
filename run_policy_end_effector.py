@@ -75,8 +75,8 @@ class EnvControlWrapper:
             {
                 'eef': gym.spaces.Box( -8, 8, shape=(7,), dtype=np.float32),
                 'camera_1': gym.spaces.Box(0, 1, shape=(3, 240, 320), dtype=np.float32),
-                'camera_2': gym.spaces.Box(0, 1, shape=(3, 240, 320), dtype=np.float32),
-                'camera_3': gym.spaces.Box(0, 1, shape=(3, 240, 320), dtype=np.float32),
+                # 'camera_2': gym.spaces.Box(0, 1, shape=(3, 240, 320), dtype=np.float32),
+                # 'camera_3': gym.spaces.Box(0, 1, shape=(3, 240, 320), dtype=np.float32),
                 'camera_0': gym.spaces.Box(0, 1, shape=(3, 240, 320), dtype=np.float32),
             }
         )
@@ -209,8 +209,8 @@ class EnvControlWrapperWithCameras(EnvControlWrapper):
         super().__init__(jpc_pub, n_obs_steps, n_action_steps)
 
         self.camera_1_compressed_msg = None
-        self.camera_2_compressed_msg = None
-        self.camera_3_compressed_msg = None
+        # self.camera_2_compressed_msg = None
+        # self.camera_3_compressed_msg = None
         self.camera_0_compressed_msg = None
 
         self.robot_description = get_robot_description(path_bag_robot_description=path_bag_robot_description)
@@ -233,8 +233,8 @@ class EnvControlWrapperWithCameras(EnvControlWrapper):
     def get_obs(self):
         if (self._jstate is None
                 or self.camera_1_compressed_msg is None
-                or self.camera_2_compressed_msg is None
-                or self.camera_3_compressed_msg is None
+                # or self.camera_2_compressed_msg is None
+                # or self.camera_3_compressed_msg is None
                 or self.camera_0_compressed_msg is None) :
             return None
         else:
@@ -244,15 +244,15 @@ class EnvControlWrapperWithCameras(EnvControlWrapper):
         pos_end_effector = end_effector_calculator(self._jstate, self._kdl)
 
         camera_1_data = convert_image(cv_bridge=self.cv_bridge, msg_ros=self.camera_1_compressed_msg)
-        camera_2_data = convert_image(cv_bridge=self.cv_bridge, msg_ros=self.camera_2_compressed_msg)
-        camera_3_data = convert_image(cv_bridge=self.cv_bridge, msg_ros=self.camera_3_compressed_msg)
+        # camera_2_data = convert_image(cv_bridge=self.cv_bridge, msg_ros=self.camera_2_compressed_msg)
+        # camera_3_data = convert_image(cv_bridge=self.cv_bridge, msg_ros=self.camera_3_compressed_msg)
         camera_0_data = convert_image(cv_bridge=self.cv_bridge, msg_ros=self.camera_0_compressed_msg)
 
         return {
             'eef': pos_end_effector.astype(np.float32),
             'camera_1': camera_1_data.astype(np.float32),
-            'camera_2': camera_2_data.astype(np.float32),
-            'camera_3': camera_3_data.astype(np.float32),
+            # 'camera_2': camera_2_data.astype(np.float32),
+            # 'camera_3': camera_3_data.astype(np.float32),
             'camera_0': camera_0_data.astype(np.float32),
         }
 
@@ -267,9 +267,9 @@ class DiffusionController(NodeParameterMixin,
         jstate_topic='/joint_states',
         cartesian_control_topic='/cartesian_control',
         camera_0_topic='/azure06/rgb/image_raw/compressed',
-        camera_1_topic='/azure07/rgb/image_raw/compressed',
-        camera_2_topic='/azure08/rgb/image_raw/compressed',
-        camera_3_topic='/d405rs01/color/image_rect_raw/compressed',
+        # camera_1_topic='/azure07/rgb/image_raw/compressed',
+        # camera_2_topic='/azure08/rgb/image_raw/compressed',
+        camera_1_topic='/d405rs01/color/image_rect_raw/compressed',
     )
 
     def __init__(self, policy, n_obs_steps, n_action_steps, path_bag_robot_description, *args, node_name='robot_calibrator', **kwargs):
@@ -310,14 +310,14 @@ class DiffusionController(NodeParameterMixin,
         self.camera_0_sub = self.create_subscription(
             CompressedImage, self.camera_0_topic, lambda msg: self.env.set_camera_0_compressed_msg(msg), 10)
 
+        # self.camera_1_sub = self.create_subscription(
+        #     CompressedImage, self.camera_1_topic, lambda msg: self.env.set_camera_1_compressed_msg(msg), 10)
+        #
+        # self.camera_2_sub = self.create_subscription(
+        #     CompressedImage, self.camera_2_topic, lambda msg: self.env.set_camera_2_compressed_msg(msg), 10)
+
         self.camera_1_sub = self.create_subscription(
             CompressedImage, self.camera_1_topic, lambda msg: self.env.set_camera_1_compressed_msg(msg), 10)
-
-        self.camera_2_sub = self.create_subscription(
-            CompressedImage, self.camera_2_topic, lambda msg: self.env.set_camera_2_compressed_msg(msg), 10)
-
-        self.camera_3_sub = self.create_subscription(
-            CompressedImage, self.camera_3_topic, lambda msg: self.env.set_camera_3_compressed_msg(msg), 10)
 
 
     def jpc_send_goal(self, jpos):
@@ -436,7 +436,9 @@ class DiffusionController(NodeParameterMixin,
     #     'diffusion_policy','config'))
 )
 def main(args=None):
-    ckpt_path = "/home/ros/humble/src/diffusion_policy/data/outputs/2024.01.16/19.33.40_train_diffusion_unet_image_franka_kitchen_lowdim/checkpoints/latest.ckpt"
+    # ckpt_path = "/home/ros/humble/src/diffusion_policy/data/outputs/2024.01.16/19.33.40_train_diffusion_unet_image_franka_kitchen_lowdim/checkpoints/latest.ckpt"
+    # ckpt_path = "/home/ros/humble/src/diffusion_policy/data/outputs/2024.01.26/12.15.56_train_diffusion_unet_image_franka_kitchen_lowdim/checkpoints/latest.ckpt"  # trained to also optimize actions
+    ckpt_path = "/home/ros/humble/src/diffusion_policy/data/outputs/2024.01.26/15.37.47_train_diffusion_unet_image_franka_kitchen_lowdim/checkpoints/latest.ckpt"  # trained to also optimize actions
     n_obs_steps = 2
     n_action_steps = 8
     path_bag_robot_description = "/home/ros/humble/src/read-db/rosbag2_2024_01_16-19_05_24/"

@@ -153,27 +153,27 @@ class DiffusionUnetHybridImagePolicy(BaseImagePolicy):
             cond_predict_scale=cond_predict_scale
         )
 
-        self.critic_model_1 = ConditionalUnet1DCritic(
-            input_dim=action_dim,
-            local_cond_dim=None,
-            global_cond_dim=global_cond_dim,
-            diffusion_step_embed_dim=diffusion_step_embed_dim,
-            down_dims=down_dims,
-            kernel_size=kernel_size,
-            n_groups=n_groups,
-            cond_predict_scale=cond_predict_scale
-        )
-
-        self.critic_model_2 = ConditionalUnet1DCritic(
-            input_dim=action_dim,
-            local_cond_dim=None,
-            global_cond_dim=global_cond_dim,
-            diffusion_step_embed_dim=diffusion_step_embed_dim,
-            down_dims=down_dims,
-            kernel_size=kernel_size,
-            n_groups=n_groups,
-            cond_predict_scale=cond_predict_scale
-        )
+        # self.critic_model_1 = ConditionalUnet1DCritic(
+        #     input_dim=action_dim,
+        #     local_cond_dim=None,
+        #     global_cond_dim=global_cond_dim,
+        #     diffusion_step_embed_dim=diffusion_step_embed_dim,
+        #     down_dims=down_dims,
+        #     kernel_size=kernel_size,
+        #     n_groups=n_groups,
+        #     cond_predict_scale=cond_predict_scale
+        # )
+        #
+        # self.critic_model_2 = ConditionalUnet1DCritic(
+        #     input_dim=action_dim,
+        #     local_cond_dim=None,
+        #     global_cond_dim=global_cond_dim,
+        #     diffusion_step_embed_dim=diffusion_step_embed_dim,
+        #     down_dims=down_dims,
+        #     kernel_size=kernel_size,
+        #     n_groups=n_groups,
+        #     cond_predict_scale=cond_predict_scale
+        # )
         self.gamma = gamma
 
         self.obs_encoder = obs_encoder
