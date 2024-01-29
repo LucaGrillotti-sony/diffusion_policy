@@ -20,8 +20,7 @@ from sensor_msgs.msg import Image
 from kdl_solver import KDLSolver
 from srl_utilities.se3 import SE3, se3, se3_mat, se3_mul, se3_repr, se3_unmat, _rw2wr, lie_grad
 
-
-
+from annotator.utils import interpolate
 from read_sensors_utils.bag_file_parser import BagFileParser
 
 import matplotlib.pyplot as plt
@@ -165,13 +164,6 @@ def get_robot_description(path_bag_robot_description):
     bag_file = path_load / f'{folder_name}_0.db3'
     parser = BagFileParser(bag_file)
     return parser.get_messages("/robot_description")[-1][1].data
-
-
-def interpolate(x, y, new_x):
-    interpolator = scipy.interpolate.interp1d(x, y, axis=0,
-                                              kind="nearest", fill_value="extrapolate", )
-    target_end_effector_pos_interpolated = interpolator(new_x)
-    return target_end_effector_pos_interpolated
 
 
 def end_effector_calculator(command_1, _kdl):

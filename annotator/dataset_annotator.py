@@ -2,7 +2,7 @@ import cv2
 import matplotlib.pyplot as plt
 import numpy as np
 
-from read_sensors_utils.format_data_replay_buffer import interpolate
+from annotator.utils import interpolate
 
 
 def annotate_video(video_path, save_path, number_total_actions=None, new_fps=10):
@@ -21,9 +21,9 @@ def annotate_video(video_path, save_path, number_total_actions=None, new_fps=10)
 
     new_timesteps = np.arange(0, frame_count / fps, step=1./new_fps)
 
-    assert len(new_timesteps) == number_total_actions
+    assert len(new_timesteps) == number_total_actions, f"len(new_timesteps) {len(new_timesteps)} != number_total_actions {number_total_actions}"
 
-    is_scooped_booleans = []
+    is_scooped_labels = []
 
     index = 0
     # loop to read every frame of the video
@@ -71,15 +71,18 @@ def annotate_video(video_path, save_path, number_total_actions=None, new_fps=10)
             break
 
         elif key & 0xFF == ord('0'):
-            is_scooped_booleans.append(False)
+            is_scooped_labels.append(0)
             print("0")
         elif key & 0xFF == ord('1'):
-            is_scooped_booleans.append(True)
+            is_scooped_labels.append(1)
             print("1")
+        elif key & 0xFF == ord('2'):
+            is_scooped_labels.append(2)
+            print("2")
 
         index += 1
 
-    array_of_booleans = np.asarray(is_scooped_booleans)
+    array_of_booleans = np.asarray(is_scooped_labels)
     current_timesteps = np.arange(0, array_of_booleans.shape[0] / fps, step=1./fps)
     new_fps = 10
     new_timesteps = np.arange(0, array_of_booleans.shape[0] / fps, step=1./new_fps)
@@ -99,7 +102,7 @@ def main():
     # Replace 'your_video.mp4' with the path to your video file
     video_path = 'your_video.mp4'
     save_path = 'is_scooped_booleans.npy'
-    annotate_video(video_path, save_path)
+    annotate_video(video_path, save_path, number_total_actions=299, new_fps=10)
 
 
 if __name__ == '__main__':
