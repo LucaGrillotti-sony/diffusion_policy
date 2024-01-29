@@ -283,7 +283,7 @@ class DiffusionUnetHybridImagePolicy(BaseImagePolicy):
         return array_actions
 
     def loss_trajectory(self, trajectory, local_cond, global_cond):
-        score_trajectory = DDIMGuidedScheduler.scoring_fn(trajectory[0])
+        score_trajectory, _ = DDIMGuidedScheduler.scoring_fn(trajectory[0], self.horizon, self.n_action_steps, self.n_obs_steps)
         norm_gradient_energy = torch.norm(self.model(trajectory, timestep=0,
                 local_cond=local_cond, global_cond=global_cond))
         print("norm_gradient", norm_gradient_energy, "score traj", score_trajectory)
@@ -430,11 +430,11 @@ class DiffusionUnetHybridImagePolicy(BaseImagePolicy):
         loss_diffusion = loss_diffusion.mean()
 
         sample_actions = self.predict_action(batch['obs'])
-        scores = torch.vmap(DDIMGuidedScheduler.scoring_fn)(sample_actions['action_pred'])
+        scores, rewards_metrics = torch.vmap(DDIMGuidedScheduler.scoring_fn, in_dims=(0, None, None, None))(sample_actions['action_pred'], self.horizon, self.n_action_steps, self.n_obs_steps)
         loss_score = -1. * scores.mean()
 
         with torch.no_grad():
-            score_dataset_actions = torch.vmap(DDIMGuidedScheduler.scoring_fn)(batch['action'])
+            score_dataset_actions, _ = torch.vmap(DDIMGuidedScheduler.scoring_fn, in_dims=(0, None, None, None))(batch['action'], self.horizon, self.n_action_steps, self.n_obs_steps)
             score_dataset_actions = torch.mean(torch.abs(score_dataset_actions))
         score_dataset_actions = score_dataset_actions.detach()
 
@@ -449,13 +449,14 @@ class DiffusionUnetHybridImagePolicy(BaseImagePolicy):
             "score_loss": loss_score,
             "alpha_coeff": alpha_coeff,
             "scores": scores.mean(),
+            **rewards_metrics,
         }
         return loss, metrics
 
     def calculate_reward(self, obs, action, next_obs):
         start_index = self.n_obs_steps - 1
         end_index = start_index + self.n_action_steps
-        rewards = torch.vmap(DDIMGuidedScheduler.scoring_fn)(action[:, start_index:end_index])
+        rewards, _ = torch.vmap(DDIMGuidedScheduler.scoring_fn)(action, in_dims=(0, None, None, None))(next_obs, self.horizon, self.n_action_steps, self.n_obs_steps)
         return rewards
 
     def compute_critic_loss(self, batch, ema_model: DiffusionUnetHybridImagePolicy):

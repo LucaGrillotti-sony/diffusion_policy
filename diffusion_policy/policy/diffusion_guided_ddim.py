@@ -180,11 +180,12 @@ class DDIMGuidedScheduler(SchedulerMixin, ConfigMixin):
 
         assert array_actions.shape[-1] == n_horizon
 
-        array_actions = array_actions[:, n_obs:]
+        # take only the actions after the first observations.
+        array_actions = array_actions[:, n_obs-1:]
         assert array_actions.shape[-1] > n_actions
 
         # array_actions = array_actions[]
-        array_actions = array_actions[:,:3] # TODO: decide if we take 1st actions only
+        array_actions = array_actions[:, :3]  # TODO: decide if we take 1st actions only
         differences = array_actions[1:] - array_actions[:-1]
 
         # distances = torch.norm(array_actions[0] - array_actions[-1], dim=-1) / (len(array_actions) - 1)

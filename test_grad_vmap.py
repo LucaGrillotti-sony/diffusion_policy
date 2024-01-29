@@ -12,7 +12,7 @@ def func(array_actions):
     differences = array_actions[1:] - array_actions[:-1]
     distances = torch.norm(differences, dim=-1)
     mean_distance = torch.mean(distances)
-    return mean_distance
+    return {"a": mean_distance}, mean_distance
 
 
 def test():
@@ -30,7 +30,7 @@ def test():
          [5., 5.],
          [5., 5.], ]
     ], requires_grad=True)
-    output = torch.vmap(func)(array_actions)
+    _, output = torch.vmap(func)(array_actions)
     print(len(output.shape), len(array_actions.shape))
 
     output = output.mean()
