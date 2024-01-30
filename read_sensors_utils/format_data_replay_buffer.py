@@ -1,39 +1,26 @@
 import dataclasses
 import functools
 import pathlib
-import pickle
 
-import subprocess
-import sys
 from pathlib import Path
 from typing import List
 
 import cv2
 import numpy as np
-import rclpy
 import scipy.interpolate
 from cv_bridge import CvBridge
-from numcodecs import register_codec
-from rclpy.node import Node
-from sensor_msgs.msg import CompressedImage
-from sensor_msgs.msg import Image
 from kdl_solver import KDLSolver
-from srl_utilities.se3 import SE3, se3, se3_mat, se3_mul, se3_repr, se3_unmat, _rw2wr, lie_grad
+from srl_utilities.se3 import se3
 
 from annotator.utils import interpolate
 from read_sensors_utils.bag_file_parser import BagFileParser
-
-import matplotlib.pyplot as plt
-
 
 import imagecodecs
 from numcodecs.abc import Codec
 
 import quaternion as quat
 
-
-CURRENT_EEF_POS_INTERPOLATED = "current_eef_pos_interpolated.npy"
-TARGET_EEF_POS_INTERPOLATED = "target_end_effector_pos_interpolated.npy"
+from read_sensors_utils.constants import CURRENT_EEF_POS_INTERPOLATED, TARGET_EEF_POS_INTERPOLATED
 
 
 def protective_squeeze(x: np.ndarray):

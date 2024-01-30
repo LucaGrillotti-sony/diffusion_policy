@@ -1,0 +1,2 @@
+CURRENT_EEF_POS_INTERPOLATED = "current_eef_pos_interpolated.npy"
+TARGET_EEF_POS_INTERPOLATED = "target_end_effector_pos_interpolated.npy"

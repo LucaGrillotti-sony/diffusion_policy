@@ -5,23 +5,26 @@ import numpy as np
 from annotator.utils import interpolate
 
 
-def annotate_video(video_path, save_path, number_total_actions=None, new_fps=10):
+def annotate_video(video_path, save_path, number_total_actions=None, new_fps=10,):
     import cv2
     import sys
 
     # load input video
-    cap = cv2.VideoCapture(video_path)
+    cap = cv2.VideoCapture(str(video_path))
     if not cap.isOpened():
         print("!!! Failed cap.isOpened()")
         sys.exit(-1)
 
     # retrieve the total number of frames
     frame_count = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-    fps = int(cap.get(cv2.CAP_PROP_FPS))
+    # fps = int(cap.get(cv2.CAP_PROP_FPS))
 
-    new_timesteps = np.arange(0, frame_count / fps, step=1./new_fps)
+    window_name = video_path.name
+    cv2.namedWindow(window_name, cv2.WINDOW_NORMAL)
+    # print(fps, new_fps)
+    # new_timesteps = np.arange(0, frame_count / fps, step=1./new_fps)
 
-    assert len(new_timesteps) == number_total_actions, f"len(new_timesteps) {len(new_timesteps)} != number_total_actions {number_total_actions}"
+    # assert len(new_timesteps) == number_total_actions, f"len(new_timesteps) {len(new_timesteps)} != number_total_actions {number_total_actions}"
 
     is_scooped_labels = []
 
@@ -35,7 +38,7 @@ def annotate_video(video_path, save_path, number_total_actions=None, new_fps=10)
             print("!!! Failed cap.read()")
             break
 
-        cv2.imshow('video', frame)
+        cv2.imshow(window_name, frame)
 
         # check if 'p' was pressed and wait for a 'b' press
         key = cv2.waitKey()
@@ -82,16 +85,18 @@ def annotate_video(video_path, save_path, number_total_actions=None, new_fps=10)
 
         index += 1
 
-    array_of_booleans = np.asarray(is_scooped_labels)
-    current_timesteps = np.arange(0, array_of_booleans.shape[0] / fps, step=1./fps)
-    new_fps = 10
-    new_timesteps = np.arange(0, array_of_booleans.shape[0] / fps, step=1./new_fps)
+    array_of_labels = np.asarray(is_scooped_labels)
+    assert len(array_of_labels) == frame_count
+    # current_timesteps = np.arange(0, array_of_labels.shape[0] / fps, step=1./fps)
+    # new_fps = 10
+    # new_timesteps = np.arange(0, array_of_labels.shape[0] / fps, step=1./new_fps)
 
-    assert len(new_timesteps) == number_total_actions
+    # assert len(new_timesteps) == number_total_actions
 
-    booleans_interpolated = interpolate(x=current_timesteps, y=array_of_booleans, new_x=new_timesteps)
-
-    np.save(save_path, booleans_interpolated)
+    # booleans_interpolated = interpolate(x=current_timesteps, y=array_of_labels, new_x=new_timesteps)
+    with open(str(save_path), "wb") as f:
+        np.save(f, array_of_labels)
+        print(f"saving video to {save_path}")
 
     # release resources
     cap.release()
