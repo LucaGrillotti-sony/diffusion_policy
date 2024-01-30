@@ -1,3 +1,6 @@
+from diffusion_policy.networks.classifier import ClassifierStageScooping
+from diffusion_policy.networks.trainer_classifier import TrainerClassifier
+
 if __name__ == "__main__":
     import sys
     import os
@@ -110,11 +113,14 @@ class TrainDiffusionUnetHybridWorkspace(BaseWorkspace):
             output_dir=self.output_dir)
         assert isinstance(env_runner, BaseImageRunner)
 
+        dict_logging = {**cfg.logging}
+        dict_logging["name"] = str(self.output_dir)
+
         # configure logging
         wandb_run = wandb.init(
             dir=str(self.output_dir),
             config=OmegaConf.to_container(cfg, resolve=True),
-            **cfg.logging
+            **dict_logging
         )
         wandb.config.update(
             {
@@ -296,6 +302,152 @@ class TrainDiffusionUnetHybridWorkspace(BaseWorkspace):
                 json_logger.log(step_log)
                 self.global_step += 1
                 self.epoch += 1
+
+    def run_train_classifier(self, num_steps: int = 100):
+        NUM_CLASSES = 3
+        IN_FEATURES_CLASSIFIER = 64
+
+        cfg = copy.deepcopy(self.cfg)
+
+        device = torch.device(cfg.training.device)
+
+        # configure dataset
+        dataset: BaseImageDataset
+        dataset = hydra.utils.instantiate(cfg.task.dataset)
+        assert isinstance(dataset, BaseImageDataset)
+        train_dataloader = DataLoader(dataset, **cfg.dataloader)
+        normalizer = dataset.get_normalizer()
+
+        # configure validation dataset
+        val_dataset = dataset.get_validation_dataset()
+        val_dataloader = DataLoader(val_dataset, **cfg.val_dataloader)
+
+        classifier = ClassifierStageScooping(in_features=IN_FEATURES_CLASSIFIER, number_of_classes=NUM_CLASSES)
+        classifier = classifier.to(device)
+
+        log_path = os.path.join(self.output_dir, 'logs_classifier.json.txt')
+
+        optimizer = torch.optim.AdamW(classifier.parameters(), betas=(0.95, 0.999), eps=1.0e-08, lr=0.0001, weight_decay=1.0e-06)
+
+        dict_logging = { **cfg.logging }
+        dict_logging["name"] = str(self.output_dir)
+        dict_logging["project"] = "Classifier Training"
+
+        checkpoint_every = 10
+
+        wandb_run_classifier = wandb.init(
+            dir=str(self.output_dir),
+            config=OmegaConf.to_container(cfg, resolve=True),
+            **dict_logging
+        )
+
+        # configure lr scheduler
+        lr_scheduler = get_scheduler(
+            cfg.training.lr_scheduler,
+            optimizer=optimizer,
+            num_warmup_steps=cfg.training.lr_warmup_steps,
+            num_training_steps=(
+                len(train_dataloader) * cfg.training.num_epochs),
+            # pytorch assumes stepping LRScheduler every epoch
+            # however huggingface diffusers steps it every batch
+            last_epoch=self.global_step-1
+        )
+
+        with JsonLogger(log_path) as json_logger:
+            for local_epoch_idx in range(num_steps):
+                step_log = dict()
+                # ========= train for this epoch ==========
+                train_losses = list()
+                with tqdm.tqdm(train_dataloader, desc=f"Classifier Training epoch {self.epoch}",
+                               leave=False, mininterval=cfg.training.tqdm_interval_sec) as tepoch:
+                    for batch_idx, batch in enumerate(tepoch):
+                        # device transfer
+                        batch = dict_apply(batch, lambda x: x.to(device, non_blocking=True))
+                        if train_sampling_batch is None:
+                            train_sampling_batch = batch
+
+                        obs_features = self.model.compute_obs_encoding(batch, detach=True)
+                        raw_loss = classifier.compute_loss(obs_features, batch['label'])
+
+                        # step optimizer
+                        if self.global_step % cfg.training.gradient_accumulate_every == 0:
+                            optimizer.step()
+                            optimizer.zero_grad()
+                            lr_scheduler.step()
+
+                        # logging
+                        raw_loss_cpu = raw_loss.item()
+                        tepoch.set_postfix(loss=raw_loss_cpu, refresh=False)
+                        train_losses.append(raw_loss_cpu)
+                        step_log = {
+                            'train_loss': raw_loss_cpu,
+                            'global_step': self.global_step,
+                            'epoch': self.epoch,
+                            'lr': lr_scheduler.get_last_lr()[0],
+                        }
+
+                        is_last_batch = (batch_idx == (len(train_dataloader) - 1))
+                        if not is_last_batch:
+                            # log of last step is combined with validation and rollout
+                            wandb_run_classifier.log(step_log, step=self.global_step)
+                            json_logger.log(step_log)
+                            self.global_step += 1
+
+                        if (cfg.training.max_train_steps is not None) \
+                            and batch_idx >= (cfg.training.max_train_steps - 1):
+                            break
+
+                # at the end of each epoch
+                # replace train_loss with epoch average
+                train_loss = np.mean(train_losses)
+                step_log['train_loss'] = train_loss
+
+                # run validation
+                if (self.epoch % cfg.training.val_every) == 0:
+                    with torch.no_grad():
+                        val_losses = list()
+                        list_metrics = list()
+                        with tqdm.tqdm(val_dataloader, desc=f"Validation epoch {self.epoch}",
+                                       leave=False, mininterval=cfg.training.tqdm_interval_sec) as tepoch:
+                            for batch_idx, batch in enumerate(tepoch):
+                                batch = dict_apply(batch, lambda x: x.to(device, non_blocking=True))
+                                loss, _metrics = self.model.compute_loss(batch)
+                                val_losses.append(loss)
+                                list_metrics.append(_metrics)
+                                if (cfg.training.max_val_steps is not None) \
+                                    and batch_idx >= (cfg.training.max_val_steps - 1):
+                                    break
+                        if len(val_losses) > 0:
+                            val_loss = torch.mean(torch.tensor(val_losses)).item()
+                            # log epoch average validation loss
+                            step_log['val_loss'] = val_loss
+
+                            dict_metrics = custom_tree_map(
+                                lambda *x: torch.mean(torch.tensor(x)).item(),
+                                *list_metrics,
+                            )
+                            step_log.update(dict_metrics)
+
+                # checkpoint
+                if (self.epoch % checkpoint_every) == 0:
+                    # checkpointing
+                    # TODO
+                    torch.save(classifier.state_dict(), os.path.join(self.output_dir, 'classifier.pth'))
+
+                    # sanitize metric names
+                    metric_dict = dict()
+                    for key, value in step_log.items():
+                        new_key = key.replace('/', '_')
+                        metric_dict[new_key] = value
+
+
+                # end of epoch
+                # log of last step is combined with validation and rollout
+                wandb_run_classifier.log(step_log, step=self.global_step)
+                json_logger.log(step_log)
+                self.global_step += 1
+                self.epoch += 1
+
 
 @hydra.main(
     version_base=None,
