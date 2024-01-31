@@ -166,13 +166,13 @@ def treat_folder(path_load, path_save, index_episode):
     frequency = 10
     folder_name = path_load.name
     bag_file = path_load / f'{folder_name}_0.db3'
-    
+
     parser = BagFileParser(bag_file)
     # images_front_camera = parser.get_messages("/d405rs01/color/image_rect_raw/compressed")
     cv_bridge = CvBridge()
     # print(images_azure_06)
 
-    PATH_BAG_ROBOT_DESCRIPTION = "rosbag2_2024_01_11-17_13_10/" # TODO
+    PATH_BAG_ROBOT_DESCRIPTION = "/home/ros/humble/src/read-db/rosbag2_2024_01_16-19_05_24/" # TODO
 
     robot_description = get_robot_description(PATH_BAG_ROBOT_DESCRIPTION)
     kdl = KDLSolver(robot_description)
@@ -230,9 +230,9 @@ def treat_folder(path_load, path_save, index_episode):
 
     print("Creating final data")
 
-    for key, value in data_img.items():
-        array_img, array_timestamps = convert_to_arrays(value)
-        data_img[key] = array_img
+    # for key, value in data_img.items():
+    #     array_img, array_timestamps = convert_to_arrays(value)
+    #     data_img[key] = array_img
 
     # # testing compression video.
     # import zarr
@@ -247,19 +247,31 @@ def treat_folder(path_load, path_save, index_episode):
     # saving array actions
     _path_folder = path_save / "actions" / str(index_episode)
     _path_folder.mkdir(exist_ok=True, parents=True)
+
     np.save(file=_path_folder / TARGET_EEF_POS_INTERPOLATED,
             arr=target_end_effector_pos_interpolated)
     np.save(file=_path_folder / CURRENT_EEF_POS_INTERPOLATED,
             arr=current_eef_pos_interpolated)
 
+    NAME_ANNOTATIONS = "annotations_video.npy"
+    NAME_INTERPOLATED_ANNOTATIONS = "annotations_video_interpolated.npy"
+    _path_annotations = _path_folder / NAME_ANNOTATIONS
+    _path_save_interpolated = _path_folder / NAME_INTERPOLATED_ANNOTATIONS
+    if _path_annotations.exists():
+        print(f"{NAME_ANNOTATIONS} exists, generating {NAME_INTERPOLATED_ANNOTATIONS}...")
+        annotations = np.load(_path_annotations)
+        _, annotations_times = convert_to_arrays(data_img["images_hand_eye"])
+        annotations_interpolated = interpolate(annotations_times, annotations, timestamps_interpolation)
+        np.save(_path_save_interpolated, annotations_interpolated)
+
 
 def main():
-    PATH_TO_LOAD = pathlib.Path("saved_rosbags").absolute()
-    PATH_SAVE = pathlib.Path("data_output").absolute()
+    PATH_TO_LOAD = pathlib.Path("/home/ros/humble/src/read-db/saved_rosbags/").absolute()
+    PATH_SAVE = pathlib.Path("/home/ros/humble/src/diffusion_policy/data/smaller_dataset").absolute()
     PATH_SAVE.mkdir(exist_ok=True, parents=True)
     rosbag_paths = [file for file in PATH_TO_LOAD.iterdir() if file.name.startswith("rosbag")]
     for index, rosbag_paths in enumerate(sorted(rosbag_paths)):
-        print(f"Treating folder {rosbag_paths.name}")
+        print(f"Treating folder {rosbag_paths}")
         treat_folder(path_load=rosbag_paths.absolute(),
                      path_save=PATH_SAVE,
                      index_episode=index)

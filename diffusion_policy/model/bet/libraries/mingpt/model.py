@@ -4,7 +4,7 @@ GPT model:
 - the meat of it is a uniform sequence of Transformer blocks
     - each Transformer is a sequential combination of a 1-hidden-layer MLP block and a self-attention block
     - all blocks feed into a central residual pathway similar to resnets
-- the final decoder is a linear projection into a vanilla Softmax classifier
+- the final decoder is a linear projection into a vanilla Softmax networks
 """
 
 import math

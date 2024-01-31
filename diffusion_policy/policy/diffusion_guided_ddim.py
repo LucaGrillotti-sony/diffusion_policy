@@ -175,14 +175,14 @@ class DDIMGuidedScheduler(SchedulerMixin, ConfigMixin):
 
     @classmethod
     def scoring_fn(cls, array_actions, n_horizon, n_actions, n_obs):
-        coeff_speed = 1. # TODO: hyperparameter
+        coeff_speed = 0.1 # TODO: hyperparameter
         coeff_acceleration = 1.
 
-        assert array_actions.shape[-1] == n_horizon
+        assert array_actions.shape[-2] == n_horizon
 
         # take only the actions after the first observations.
-        array_actions = array_actions[:, n_obs-1:]
-        assert array_actions.shape[-1] > n_actions
+        array_actions = array_actions[n_obs-1:]
+        assert array_actions.shape[-2] > n_actions
 
         # array_actions = array_actions[]
         array_actions = array_actions[:, :3]  # TODO: decide if we take 1st actions only
@@ -190,11 +190,11 @@ class DDIMGuidedScheduler(SchedulerMixin, ConfigMixin):
 
         # distances = torch.norm(array_actions[0] - array_actions[-1], dim=-1) / (len(array_actions) - 1)
         speeds = torch.norm(differences, dim=-1)
-        mean_speed = torch.mean(speeds * speeds)
+        mean_speed = torch.mean(speeds)
 
         accelerations = speeds[1:] - speeds[:-1]
         norm_accelerations = torch.norm(accelerations, dim=-1)
-        neg_mean_acc = -1. * torch.mean(norm_accelerations * norm_accelerations)
+        neg_mean_acc = -1. * torch.mean(norm_accelerations)
 
         # difference_speed_vectors = differences[1:] - differences[:-1]
         # dot_product = torch.sum(differences[1:] * differences[:-1], dim=-1)
@@ -210,23 +210,20 @@ class DDIMGuidedScheduler(SchedulerMixin, ConfigMixin):
             # "mean_cos_angle": mean_cos_angle,
         }
 
-        dict_coeffificients = {
-            "coeff_speed": coeff_speed,
-            "coeff_acceleration": coeff_acceleration,
+        dict_coefficients = {
+            "coeff_mean_speed": coeff_speed,
+            "coeff_neg_mean_acc": coeff_acceleration,
             # "coeff_cos_angle": 0.05,  # TODO: hyperparameter
         }
 
         dict_rescaled_reward = {
-            f"rescaled_{key}": value * dict_coeffificients[f"coeff_{key}"] for key, value in dict_reward.items()
+            f"rescaled_{key}": value * dict_coefficients[f"coeff_{key}"] for key, value in dict_reward.items()
         }
 
-        for key, value in dict_reward.items():
-            dict_reward[f"rescaled_{key}"] = value * dict_coeffificients[f"coeff_{key}"]
-
-        metrics = {**dict_reward, **dict_coeffificients}
+        metrics = {**dict_reward, **dict_rescaled_reward}
 
         for key, value in dict_rescaled_reward.items():
-            metrics[key] = value.detach().cpu().numpy()
+            metrics[key] = value
 
         return sum(dict_rescaled_reward.values()), metrics
 
@@ -326,7 +323,7 @@ class DDIMGuidedScheduler(SchedulerMixin, ConfigMixin):
 
         # 6. compute "direction pointing to x_t" of formula (12) from https://arxiv.org/pdf/2010.02502.pdf
 
-        # Implementing the classifier-guided sampling
+        # Implementing the networks-guided sampling
         # with torch.enable_grad():
         #     array_actions = sample.clone().detach().requires_grad_(True)
         #     array_actions_xyz = array_actions[:, :3]
@@ -354,7 +351,7 @@ class DDIMGuidedScheduler(SchedulerMixin, ConfigMixin):
         # 7. compute x_t without "random noise" of formula (12) from https://arxiv.org/pdf/2010.02502.pdf
         prev_sample = alpha_prod_t_prev ** (0.5) * pred_original_sample + pred_sample_direction
 
-        #  # tests to see if the gradient classifier has an impact
+        #  # tests to see if the gradient networks has an impact
         # if timestep == 0:
         #     with torch.enable_grad():
         #         array_actions = prev_sample.clone().detach().requires_grad_(True)

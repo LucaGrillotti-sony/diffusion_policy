@@ -170,9 +170,10 @@ class TrainDiffusionUnetHybridWorkspace(BaseWorkspace):
 
                         # compute loss
                         raw_loss, _metrics_training = self.model.compute_loss(batch)
-                        raw_critic_loss, _metrics_critic_training = self.model.compute_critic_loss(batch, ema_model=self.ema_model)
+                        # raw_critic_loss, _metrics_critic_training = self.model.compute_critic_loss(batch, ema_model=self.ema_model)
 
-                        loss = (raw_loss + raw_critic_loss) / cfg.training.gradient_accumulate_every
+                        # loss = (raw_loss + raw_critic_loss) / cfg.training.gradient_accumulate_every
+                        loss = raw_loss / cfg.training.gradient_accumulate_every
                         loss.backward()
 
                         # step optimizer
@@ -195,7 +196,7 @@ class TrainDiffusionUnetHybridWorkspace(BaseWorkspace):
                             'epoch': self.epoch,
                             'lr': lr_scheduler.get_last_lr()[0],
                             **_metrics_training,
-                            **_metrics_critic_training,
+                            # **_metrics_critic_training,
                         }
 
                         is_last_batch = (batch_idx == (len(train_dataloader)-1))
@@ -305,7 +306,7 @@ class TrainDiffusionUnetHybridWorkspace(BaseWorkspace):
 
     def run_train_classifier(self, num_steps: int = 100):
         NUM_CLASSES = 3
-        IN_FEATURES_CLASSIFIER = 64
+        IN_FEATURES_CLASSIFIER = 135
 
         cfg = copy.deepcopy(self.cfg)
 
@@ -324,14 +325,15 @@ class TrainDiffusionUnetHybridWorkspace(BaseWorkspace):
 
         classifier = ClassifierStageScooping(in_features=IN_FEATURES_CLASSIFIER, number_of_classes=NUM_CLASSES)
         classifier = classifier.to(device)
+        self.model = self.model.to(device)
+
+        optimizer_to(self.optimizer, device)
 
         log_path = os.path.join(self.output_dir, 'logs_classifier.json.txt')
 
         optimizer = torch.optim.AdamW(classifier.parameters(), betas=(0.95, 0.999), eps=1.0e-08, lr=0.0001, weight_decay=1.0e-06)
 
-        dict_logging = { **cfg.logging }
-        dict_logging["name"] = str(self.output_dir)
-        dict_logging["project"] = "Classifier Training"
+        dict_logging = {**cfg.logging, "name": str(self.output_dir), "project": "Classifier Training"}
 
         checkpoint_every = 10
 
@@ -340,18 +342,9 @@ class TrainDiffusionUnetHybridWorkspace(BaseWorkspace):
             config=OmegaConf.to_container(cfg, resolve=True),
             **dict_logging
         )
+        train_sampling_batch = None
 
-        # configure lr scheduler
-        lr_scheduler = get_scheduler(
-            cfg.training.lr_scheduler,
-            optimizer=optimizer,
-            num_warmup_steps=cfg.training.lr_warmup_steps,
-            num_training_steps=(
-                len(train_dataloader) * cfg.training.num_epochs),
-            # pytorch assumes stepping LRScheduler every epoch
-            # however huggingface diffusers steps it every batch
-            last_epoch=self.global_step-1
-        )
+        print("device:", device)
 
         with JsonLogger(log_path) as json_logger:
             for local_epoch_idx in range(num_steps):
@@ -365,15 +358,20 @@ class TrainDiffusionUnetHybridWorkspace(BaseWorkspace):
                         batch = dict_apply(batch, lambda x: x.to(device, non_blocking=True))
                         if train_sampling_batch is None:
                             train_sampling_batch = batch
-
+                        labels = batch['label']
+                        shape_labels = labels.shape
                         obs_features = self.model.compute_obs_encoding(batch, detach=True)
-                        raw_loss = classifier.compute_loss(obs_features, batch['label'])
+                        obs_features = obs_features.view(*shape_labels, -1)
+
+
+                        raw_loss = classifier.compute_loss(obs_features, labels)
+                        # accuracy = classifier.accuracy(obs_features, labels)
+                        raw_loss.backward()
 
                         # step optimizer
                         if self.global_step % cfg.training.gradient_accumulate_every == 0:
                             optimizer.step()
                             optimizer.zero_grad()
-                            lr_scheduler.step()
 
                         # logging
                         raw_loss_cpu = raw_loss.item()
@@ -383,7 +381,6 @@ class TrainDiffusionUnetHybridWorkspace(BaseWorkspace):
                             'train_loss': raw_loss_cpu,
                             'global_step': self.global_step,
                             'epoch': self.epoch,
-                            'lr': lr_scheduler.get_last_lr()[0],
                         }
 
                         is_last_batch = (batch_idx == (len(train_dataloader) - 1))
@@ -406,27 +403,39 @@ class TrainDiffusionUnetHybridWorkspace(BaseWorkspace):
                 if (self.epoch % cfg.training.val_every) == 0:
                     with torch.no_grad():
                         val_losses = list()
-                        list_metrics = list()
+                        accuracies = list()
+                        # list_metrics = list()
                         with tqdm.tqdm(val_dataloader, desc=f"Validation epoch {self.epoch}",
                                        leave=False, mininterval=cfg.training.tqdm_interval_sec) as tepoch:
                             for batch_idx, batch in enumerate(tepoch):
                                 batch = dict_apply(batch, lambda x: x.to(device, non_blocking=True))
-                                loss, _metrics = self.model.compute_loss(batch)
-                                val_losses.append(loss)
-                                list_metrics.append(_metrics)
+                                if train_sampling_batch is None:
+                                    train_sampling_batch = batch
+                                labels = batch['label']
+                                shape_labels = labels.shape
+                                obs_features = self.model.compute_obs_encoding(batch, detach=True)
+                                obs_features = obs_features.view(*shape_labels, -1)
+
+                                val_loss = classifier.compute_loss(obs_features, labels)
+                                accuracy = classifier.accuracy(obs_features, labels)
+                                val_losses.append(val_loss)
+                                accuracies.append(accuracy)
+                                # list_metrics.append(_metrics)
                                 if (cfg.training.max_val_steps is not None) \
                                     and batch_idx >= (cfg.training.max_val_steps - 1):
                                     break
                         if len(val_losses) > 0:
                             val_loss = torch.mean(torch.tensor(val_losses)).item()
+                            accuracy_mean = torch.mean(torch.tensor(accuracies)).item()
                             # log epoch average validation loss
                             step_log['val_loss'] = val_loss
+                            step_log['accuracy'] = accuracy_mean
 
-                            dict_metrics = custom_tree_map(
-                                lambda *x: torch.mean(torch.tensor(x)).item(),
-                                *list_metrics,
-                            )
-                            step_log.update(dict_metrics)
+                            # dict_metrics = custom_tree_map(
+                            #     lambda *x: torch.mean(torch.tensor(x)).item(),
+                            #     *list_metrics,
+                            # )
+                            # step_log.update(dict_metrics)
 
                 # checkpoint
                 if (self.epoch % checkpoint_every) == 0:

@@ -218,6 +218,9 @@ class RealFrankaImageDataset(BaseImageDataset):
             del data[key]
         
         action = data['action'].astype(np.float32)
+        labels = data['label'].astype(np.uint8)
+        labels = labels[T_slice]
+
         # handle latency by dropping first n_latency_steps action
         # observations are already taken care of by T_slice
         if self.n_latency_steps > 0:
@@ -229,6 +232,7 @@ class RealFrankaImageDataset(BaseImageDataset):
             'obs': dict_apply(obs_dict, torch.from_numpy),
             'action': torch.from_numpy(action),
             'next_obs': dict_apply(next_obs_dict, torch.from_numpy),
+            'label': torch.from_numpy(labels),
         }
         return torch_data
 
@@ -260,6 +264,7 @@ def _get_replay_buffer(dataset_path, shape_meta, store, dt):
                 assert tuple(shape) in [(2,),(6,)]
     
     action_shape = tuple(shape_meta['action']['shape'])
+    label_shape = tuple(shape_meta['label']['shape'])
     # assert action_shape in [(2,),(6,)]
 
     # load data
@@ -269,7 +274,7 @@ def _get_replay_buffer(dataset_path, shape_meta, store, dt):
             dataset_path=dataset_path,
             out_store=store,
             out_resolutions=out_resolutions,
-            lowdim_keys=lowdim_keys + ['action'],
+            lowdim_keys=lowdim_keys + ['action'] + ['label'],
             image_keys=rgb_keys,
             dt=dt,
         )
@@ -279,7 +284,12 @@ def _get_replay_buffer(dataset_path, shape_meta, store, dt):
         # 2D action space, only controls X and Y
         zarr_arr = replay_buffer['action']
         zarr_resize_index_last_dim(zarr_arr, idxs=[0,1])
-    
+
+    # transform lowdim dimensions
+    if action_shape == (2,):
+        zarr_arr = replay_buffer['label']
+        zarr_resize_index_last_dim(zarr_arr, idxs=[0, 1])
+
     for key, shape in lowdim_shapes.items():
         if 'pose' in key and shape == (2,):
             # only take X and Y

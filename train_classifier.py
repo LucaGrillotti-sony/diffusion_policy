@@ -17,32 +17,34 @@ sys.stderr = open(sys.stderr.fileno(), mode='w', buffering=1)
 
 import hydra
 from omegaconf import OmegaConf
-import pathlib
-from diffusion_policy.workspace.base_workspace import BaseWorkspace
 
 # allows arbitrary python code execution in configs using the ${eval:''} resolver
 OmegaConf.register_new_resolver("eval", eval, replace=True)
 
 @hydra.main(
     version_base=None,
-    # config_path=str(pathlib.Path(__file__).parent.joinpath(
-    #     'diffusion_policy','config'))
 )
-def main():
+def main(args=None):
     # resolve immediately so all the ${now:} resolvers
     # will use the same time.
     # OmegaConf.resolve(cfg)
 
     # workspace: TrainDiffusionUnetHybridWorkspace = cls(cfg)
+    print(1)
 
-    ckpt_path = "/home/ros/humble/src/diffusion_policy/data/outputs/2024.01.26/15.37.47_train_diffusion_unet_image_franka_kitchen_lowdim/checkpoints/latest.ckpt"  # trained to also optimize actions
+    ckpt_path = "/home/lucagrillotti/ros/humble/src/diffusion_policy/data/outputs/2024.01.30/11.31.12_train_diffusion_unet_image_franka_kitchen_lowdim/checkpoints/latest.ckpt"  # trained to also optimize actions
+    print(2)
+
     payload = torch.load(open(ckpt_path, 'rb'), pickle_module=dill)
     cfg = payload['cfg']
     cls = hydra.utils.get_class(cfg._target_)
     workspace: TrainDiffusionUnetHybridWorkspace = cls(cfg)
+    print(3)
+
     workspace.load_payload(payload, exclude_keys=None, include_keys=None)
     workspace.run_train_classifier()
 
 
 if __name__ == "__main__":
+    print(0)
     main()

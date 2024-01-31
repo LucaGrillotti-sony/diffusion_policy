@@ -151,10 +151,15 @@ task:
           shape:
             - 7
           type: low_dim
+      label:
+        shape:
+          - 1
+        type: low_dim
     dataset_path: data/smaller_dataset
     dt: 0.1
     horizon: 16
     n_obs_steps: 2
+    n_action_steps: 8
     pad_after: 7
     pad_before: 1
 #    robot_noise_ratio: 0.1
@@ -166,7 +171,7 @@ task:
     _target_: diffusion_policy.env_runner.real_robot_runner.DummyImageRobot
 task_name: kitchen_lowdim
 training:
-  checkpoint_every: 50
+  checkpoint_every: 2
   debug: false
   device: cuda:0
   gradient_accumulate_every: 1

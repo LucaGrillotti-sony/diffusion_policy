@@ -342,8 +342,9 @@ class DiffusionUnetHybridImagePolicy(BaseImagePolicy):
             **self.kwargs)
         
         # unnormalize prediction
-        naction_pred = nsample[...,:Da]
+        naction_pred = nsample[..., :Da]
         action_pred = self.normalizer['action'].unnormalize(naction_pred)
+        sample = self.normalizer['action'].unnormalize(nsample)
 
         # get action
         start = To - 1
@@ -354,6 +355,7 @@ class DiffusionUnetHybridImagePolicy(BaseImagePolicy):
             'action': action,
             'action_pred': action_pred,
             'metrics': metrics,
+            'full_sample': sample,
         }
         return result
 
@@ -430,6 +432,7 @@ class DiffusionUnetHybridImagePolicy(BaseImagePolicy):
         loss_diffusion = loss_diffusion.mean()
 
         sample_actions = self.predict_action(batch['obs'])
+        # print(sample_actions['action_pred'].shape, sample_actions['full_sample'].shape, self.horizon, self.n_action_steps, self.n_obs_steps)
         scores, rewards_metrics = torch.vmap(DDIMGuidedScheduler.scoring_fn, in_dims=(0, None, None, None))(sample_actions['action_pred'], self.horizon, self.n_action_steps, self.n_obs_steps)
         loss_score = -1. * scores.mean()
 
@@ -439,9 +442,12 @@ class DiffusionUnetHybridImagePolicy(BaseImagePolicy):
         score_dataset_actions = score_dataset_actions.detach()
 
         # eta_coeff = 0.0  # todo: in config
-        eta_coeff = 0.0001  # todo: in config
+        eta_coeff = 0.001  # todo: in config
         alpha_coeff = eta_coeff / score_dataset_actions
         loss_score = alpha_coeff * loss_score
+
+        for key, value in rewards_metrics.items():
+            rewards_metrics[key] = torch.mean(value.detach())
 
         loss = loss_diffusion + loss_score
         metrics = {
@@ -456,7 +462,7 @@ class DiffusionUnetHybridImagePolicy(BaseImagePolicy):
     def calculate_reward(self, obs, action, next_obs):
         start_index = self.n_obs_steps - 1
         end_index = start_index + self.n_action_steps
-        rewards, _ = torch.vmap(DDIMGuidedScheduler.scoring_fn)(action, in_dims=(0, None, None, None))(next_obs, self.horizon, self.n_action_steps, self.n_obs_steps)
+        rewards, _ = torch.vmap(DDIMGuidedScheduler.scoring_fn, in_dims=(0, None, None, None))(action, self.horizon, self.n_action_steps, self.n_obs_steps)
         return rewards
 
     def compute_obs_encoding(self, batch, detach=False):

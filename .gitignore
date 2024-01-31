@@ -1,3 +1,4 @@
+*.npy
 *.mp4
 *.zip
 .idea/

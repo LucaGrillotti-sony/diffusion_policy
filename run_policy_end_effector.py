@@ -438,7 +438,7 @@ class DiffusionController(NodeParameterMixin,
 def main(args=None):
     # ckpt_path = "/home/ros/humble/src/diffusion_policy/data/outputs/2024.01.16/19.33.40_train_diffusion_unet_image_franka_kitchen_lowdim/checkpoints/latest.ckpt"
     # ckpt_path = "/home/ros/humble/src/diffusion_policy/data/outputs/2024.01.26/12.15.56_train_diffusion_unet_image_franka_kitchen_lowdim/checkpoints/latest.ckpt"  # trained to also optimize actions
-    ckpt_path = "/home/ros/humble/src/diffusion_policy/data/outputs/2024.01.26/15.37.47_train_diffusion_unet_image_franka_kitchen_lowdim/checkpoints/latest.ckpt"  # trained to also optimize actions
+    ckpt_path = "/home/ros/humble/src/diffusion_policy/data/outputs/2024.01.30/11.31.12_train_diffusion_unet_image_franka_kitchen_lowdim/checkpoints/latest.ckpt"  # trained to also optimize actions
     n_obs_steps = 2
     n_action_steps = 8
     path_bag_robot_description = "/home/ros/humble/src/read-db/rosbag2_2024_01_16-19_05_24/"
@@ -463,6 +463,7 @@ def main(args=None):
 
     # workspace: BaseWorkspace = TrainDiffusionUnetLowdimWorkspace(cfg)
     # workspace.load_checkpoint()
+    #
     # workspace.model.eval()
     # workspace.model.cuda()
     # print(workspace.model.normalizer["obs"].params_dict["offset"])
