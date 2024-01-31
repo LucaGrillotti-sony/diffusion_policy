@@ -32,6 +32,7 @@ class DiffusionUnetHybridImagePolicy(BaseImagePolicy):
             horizon, 
             n_action_steps, 
             n_obs_steps,
+            eta_coeff_critic,
             num_inference_steps=None,
             obs_as_global_cond=True,
             crop_shape=(76, 76),
@@ -177,6 +178,7 @@ class DiffusionUnetHybridImagePolicy(BaseImagePolicy):
         self.gamma = gamma
 
         self.obs_encoder = obs_encoder
+        self.eta_coeff_critic = eta_coeff_critic
         self.model = model
         self.noise_scheduler = noise_scheduler
         self.mask_generator = LowdimMaskGenerator(
@@ -441,9 +443,7 @@ class DiffusionUnetHybridImagePolicy(BaseImagePolicy):
             score_dataset_actions = torch.mean(torch.abs(score_dataset_actions))
         score_dataset_actions = score_dataset_actions.detach()
 
-        # eta_coeff = 0.0  # todo: in config
-        eta_coeff = 0.001  # todo: in config
-        alpha_coeff = eta_coeff / score_dataset_actions
+        alpha_coeff = self.eta_coeff_critic / score_dataset_actions
         loss_score = alpha_coeff * loss_score
 
         for key, value in rewards_metrics.items():
