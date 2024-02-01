@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Dict
 import math
 
+import hydra
 import numpy as np
 import torch
 import torch.nn as nn
@@ -181,6 +182,8 @@ class DiffusionUnetHybridImagePolicy(BaseImagePolicy):
         self.eta_coeff_critic = eta_coeff_critic
         self.model = model
         self.noise_scheduler = noise_scheduler
+        self.lagrange_parameter = torch.nn.Parameter(torch.Tensor([0.]), requires_grad=True)
+        self.lagrange_optimizer = hydra.utils.instantiate(lagrange_optimizer, params=[self.lagrange_parameter])
         self.mask_generator = LowdimMaskGenerator(
             action_dim=action_dim,
             obs_dim=0 if obs_as_global_cond else obs_feature_dim,
@@ -482,6 +485,8 @@ class DiffusionUnetHybridImagePolicy(BaseImagePolicy):
         if detach:
             nobs_features = nobs_features.detach()
         return nobs_features
+
+
 
 
     def compute_critic_loss(self, batch, ema_model: DiffusionUnetHybridImagePolicy):
