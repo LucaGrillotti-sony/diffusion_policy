@@ -49,6 +49,14 @@ optimizer:
 past_action_visible: false
 policy:
   _target_: diffusion_policy.policy.diffusion_unet_hybrid_image_policy.DiffusionUnetHybridImagePolicy
+  lagrange_optimizer:
+    _target_: torch.optim.AdamW
+    betas:
+      - 0.95
+      - 0.999
+    eps: 1.0e-08
+    lr: 0.00001
+    weight_decay: 1.0e-06
   eta_coeff_critic: 0.0001
   cond_predict_scale: true
   crop_shape:
