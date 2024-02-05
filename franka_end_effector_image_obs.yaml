@@ -15,6 +15,13 @@ ema:
   min_value: 0.0
   power: 0.75
   update_after_step: 0
+critic_target:
+  _target_: diffusion_policy.model.diffusion.ema_model.EMAModel
+  inv_gamma: 1.0
+  max_value: 0.9999
+  min_value: 0.0
+  power: 0.75
+  update_after_step: 0
 exp_name: obs_global_rerun
 horizon: 16
 keypoint_dim: 3
@@ -39,6 +46,14 @@ name: train_diffusion_unet_image_franka
 obs_as_global_cond: true
 obs_as_local_cond: false
 optimizer:
+  _target_: torch.optim.AdamW
+  betas:
+  - 0.95
+  - 0.999
+  eps: 1.0e-08
+  lr: 0.0001
+  weight_decay: 1.0e-06
+critic_optimizer:
   _target_: torch.optim.AdamW
   betas:
   - 0.95
@@ -124,6 +139,8 @@ policy:
   obs_encoder_group_norm: true
 critic:
   _target_: diffusion_policy.model.diffusion.conditional_unet1d_critic.DoubleCritic
+  n_action_steps: 8
+  horizon: 16
   cond_predict_scale: true
   diffusion_step_embed_dim: 128
   down_dims:
@@ -156,6 +173,7 @@ critic:
         type: low_dim
   obs_as_global_cond: true
   gamma: 0.99
+
 pred_action_steps_only: false
 task:
   abs_action: true

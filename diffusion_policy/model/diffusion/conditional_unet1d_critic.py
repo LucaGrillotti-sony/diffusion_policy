@@ -14,6 +14,7 @@ from diffusion_policy.model.diffusion.conditional_unet1d import ConditionalResid
 from diffusion_policy.model.diffusion.conv1d_components import (
     Downsample1d, Upsample1d, Conv1dBlock)
 from diffusion_policy.model.diffusion.positional_embedding import SinusoidalPosEmb
+from diffusion_policy.policy.diffusion_guided_ddim import DDIMGuidedScheduler
 
 logger = logging.getLogger(__name__)
 
@@ -158,6 +159,8 @@ class DoubleCritic(nn.Module):
                  obs_feature_dim,
                  shape_meta: dict,
                  n_obs_steps,
+                 n_action_steps,
+                 horizon,
                  obs_as_global_cond=True,
                  diffusion_step_embed_dim=256,
                  down_dims=(256, 512, 1024),
@@ -207,6 +210,10 @@ class DoubleCritic(nn.Module):
 
         self.normalizer = None
         self.gamma = gamma
+        self.obs_as_global_cond = obs_as_global_cond
+        self.n_obs_steps = n_obs_steps
+        self.n_action_steps = n_action_steps
+        self.horizon = horizon
 
     def forward(self, x, local_cond=None, global_cond=None, **kwargs):
         return (self.critic_model_1(x, local_cond, global_cond, **kwargs),
@@ -216,6 +223,12 @@ class DoubleCritic(nn.Module):
         if self.normalizer is not None:
             raise ValueError("Normalizer already set")
         self.normalizer = normalizer
+
+    def calculate_reward(self, obs, action, next_obs):
+        start_index = self.n_obs_steps - 1
+        end_index = start_index + self.n_action_steps
+        rewards, _ = torch.vmap(DDIMGuidedScheduler.scoring_fn, in_dims=(0, None, None, None))(action, self.horizon, self.n_action_steps, self.n_obs_steps)
+        return rewards
 
     def compute_critic_loss(self, batch, nobs_features, critic_target: DoubleCritic):
         nobs_features = nobs_features.detach()

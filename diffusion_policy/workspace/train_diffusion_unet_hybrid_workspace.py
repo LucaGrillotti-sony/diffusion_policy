@@ -161,6 +161,7 @@ class TrainDiffusionUnetHybridWorkspace(BaseWorkspace):
         # device transfer
         device = torch.device(cfg.training.device)
         self.model.to(device)
+        self.lagrange_parameter.to(device)
         self.critic.to(device)
 
         if self.ema_model is not None:
@@ -196,7 +197,7 @@ class TrainDiffusionUnetHybridWorkspace(BaseWorkspace):
                             train_sampling_batch = batch
 
                         # compute loss
-                        sigmoid_lagrange = self.get_sigmoid_lagrange(detach=True)
+                        sigmoid_lagrange = self.get_sigmoid_lagrange(detach=True).to(cfg.training.device)
                         raw_loss_actor, _metrics_training, _other_data_model = self.model.compute_loss(batch, sigmoid_lagrange)
                         # raw_critic_loss, _metrics_critic_training = self.model.compute_critic_loss(batch, ema_model=self.ema_model)
 
@@ -210,7 +211,7 @@ class TrainDiffusionUnetHybridWorkspace(BaseWorkspace):
                             self.optimizer.zero_grad()
                             lr_scheduler.step()
 
-                        raw_loss_lagrange, _metrics_lagrange = self.compute_loss_lagrange(action_predictions=_other_data_model["action_predictions"], batch=batch)
+                        raw_loss_lagrange, _metrics_lagrange = self.compute_loss_lagrange(sample_actions=_other_data_model["sample_actions"], batch=batch)
                         self.update_lagrange(raw_loss_lagrange)
 
                         # Update critic
@@ -257,7 +258,6 @@ class TrainDiffusionUnetHybridWorkspace(BaseWorkspace):
                 policy = self.model
                 if cfg.training.use_ema:
                     policy = self.ema_model
-
                 policy.eval()
 
                 # run rollout
@@ -496,8 +496,8 @@ class TrainDiffusionUnetHybridWorkspace(BaseWorkspace):
                 self.global_step += 1
                 self.epoch += 1
 
-    def compute_loss_lagrange(self, action_predictions, batch, ):
-        mse = F.mse_loss(action_predictions['action_pred'], batch['action'])  # todo verify if action_predictions are of this form
+    def compute_loss_lagrange(self, sample_actions, batch, ):
+        mse = F.mse_loss(sample_actions['action_pred'], batch['action']).detach().item()  # todo verify if action_predictions are of this form
         lagrange_sigmoid = self.get_sigmoid_lagrange()
         constraint_loss = lagrange_sigmoid * (mse - self.eps_lagrange_constraint_mse_predictions)
 
@@ -512,9 +512,9 @@ class TrainDiffusionUnetHybridWorkspace(BaseWorkspace):
 
     def get_sigmoid_lagrange(self, detach=False):
         if detach:
-            return torch.sigmoid(self.lagrange_parameter.detach())
+            return torch.sigmoid(self.lagrange_parameter.detach()).to(self.cfg.training.device)
         else:
-            return torch.sigmoid(self.lagrange_parameter)
+            return torch.sigmoid(self.lagrange_parameter).to(self.cfg.training.device)
 
     def postprocess_clip_lagrange(self):
         # Keep the lagrange parameter in a tractable range: -15, 15
