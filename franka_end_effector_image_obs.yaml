@@ -58,7 +58,7 @@ lagrange_optimizer:
   weight_decay: 1.0e-06
 policy:
   _target_: diffusion_policy.policy.diffusion_unet_hybrid_image_policy.DiffusionUnetHybridImagePolicy
-  eta_coeff_critic: 0.001
+  eta_coeff_critic: 0.01
   cond_predict_scale: true
   crop_shape:
     - 216
