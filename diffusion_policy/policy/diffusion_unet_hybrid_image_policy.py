@@ -452,7 +452,6 @@ class DiffusionUnetHybridImagePolicy(BaseImagePolicy):
             rewards_metrics[key] = torch.mean(value.detach())
 
         loss_actor = loss_diffusion + sigmoid_lagrange * loss_score
-        # loss_lagrange = self.compute_loss_lagrange(sample_actions, batch)
         metrics = {
             "diffusion_loss": loss_diffusion,
             "score_loss": loss_score,
