@@ -34,8 +34,6 @@ class DiffusionUnetHybridImagePolicy(BaseImagePolicy):
             n_action_steps, 
             n_obs_steps,
             eta_coeff_critic,
-            lagrange_optimizer,
-            eps_lagrange_constraint_mse_predictions: float,
             num_inference_steps=None,
             obs_as_global_cond=True,
             crop_shape=(76, 76),
@@ -184,11 +182,6 @@ class DiffusionUnetHybridImagePolicy(BaseImagePolicy):
         self.eta_coeff_critic = eta_coeff_critic
         self.model = model
         self.noise_scheduler = noise_scheduler
-
-        # Lagrange parameters
-        self.lagrange_parameter = torch.nn.Parameter(torch.Tensor([0.]), requires_grad=True)
-        self.lagrange_optimizer = hydra.utils.instantiate(lagrange_optimizer, params=[self.lagrange_parameter])
-        self.eps_lagrange_constraint_mse_predictions = eps_lagrange_constraint_mse_predictions
 
         self.mask_generator = LowdimMaskGenerator(
             action_dim=action_dim,
@@ -374,28 +367,7 @@ class DiffusionUnetHybridImagePolicy(BaseImagePolicy):
     def set_normalizer(self, normalizer: LinearNormalizer):
         self.normalizer.load_state_dict(normalizer.state_dict())
 
-    def compute_loss_lagrange(self, action_predictions, batch, ):
-        mse = F.mse_loss(action_predictions['action_pred'], batch['action'])  # todo verify if action_predictions are of this form
-        lagrange_sigmoid = self.get_sigmoid_lagrange()
-        constraint_loss = lagrange_sigmoid * (mse - self.eps_lagrange_constraint_mse_predictions)
-        return constraint_loss
-
-    def get_sigmoid_lagrange(self, detach=False):
-        if detach:
-            return torch.sigmoid(self.lagrange_parameter.detach())
-        else:
-            return torch.sigmoid(self.lagrange_parameter)
-
-    def postprocess_clip_lagrange(self):
-        # Keep the lagrange parameter in a tractable range: -15, 15
-        self.lagrange_parameter.data = torch.clamp(self.lagrange_parameter.data, -15., 15.)
-
-    def update_lagrange(self, loss):
-        self.lagrange_optimizer.zero_grad()
-        loss.backward()
-        self.lagrange_optimizer.step()
-
-    def compute_loss(self, batch) -> Tuple[torch.Tensor, torch.Tensor, Dict[str, torch.Tensor]]:
+    def compute_loss(self, batch, sigmoid_lagrange) -> Tuple[torch.Tensor, Dict[str, torch.Tensor], Dict[str, torch.Tensor]]:
         # normalize input
         assert 'valid_mask' not in batch
         nobs = self.normalizer.normalize(batch['obs'])
@@ -479,21 +451,19 @@ class DiffusionUnetHybridImagePolicy(BaseImagePolicy):
         for key, value in rewards_metrics.items():
             rewards_metrics[key] = torch.mean(value.detach())
 
-        lagrangian = self.lagrange_parameter.data
-        sigmoid_lagrange = self.get_sigmoid_lagrange(detach=True)
-
         loss_actor = loss_diffusion + sigmoid_lagrange * loss_score
-        loss_lagrange = self.compute_loss_lagrange(sample_actions, batch)
+        # loss_lagrange = self.compute_loss_lagrange(sample_actions, batch)
         metrics = {
             "diffusion_loss": loss_diffusion,
             "score_loss": loss_score,
             "alpha_coeff": alpha_coeff,
             "scores": scores.mean(),
-            "sigmoid_lagrange": sigmoid_lagrange.item(),
-            "lagrange": lagrangian.detach().item(),
             **rewards_metrics,
         }
-        return loss_actor, loss_lagrange, metrics
+        other_data = {
+            "sample_actions": sample_actions,
+        }
+        return loss_actor, metrics, other_data
 
     def calculate_reward(self, obs, action, next_obs):
         start_index = self.n_obs_steps - 1

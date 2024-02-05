@@ -22,6 +22,9 @@ import wandb
 import tqdm
 import numpy as np
 import shutil
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
 from diffusion_policy.workspace.base_workspace import BaseWorkspace
 from diffusion_policy.policy.diffusion_unet_hybrid_image_policy import DiffusionUnetHybridImagePolicy
 from diffusion_policy.dataset.base_dataset import BaseImageDataset
@@ -56,6 +59,13 @@ class TrainDiffusionUnetHybridWorkspace(BaseWorkspace):
         # configure training state
         self.optimizer = hydra.utils.instantiate(
             cfg.optimizer, params=self.model.parameters())
+
+        self.lagrange_parameter = torch.nn.Parameter(torch.Tensor([0.]), requires_grad=True)
+
+        self.lagrange_optimizer = hydra.utils.instantiate(
+            cfg.lagrange_optimizer, params=[self.lagrange_parameter])
+
+        self.eps_lagrange_constraint_mse_predictions = cfg.eps_lagrange_constraint_mse_predictions
 
         # configure training state
         self.global_step = 0
@@ -169,7 +179,8 @@ class TrainDiffusionUnetHybridWorkspace(BaseWorkspace):
                             train_sampling_batch = batch
 
                         # compute loss
-                        raw_loss_actor, raw_loss_lagrange,  _metrics_training = self.model.compute_loss(batch)
+                        sigmoid_lagrange = self.get_sigmoid_lagrange(detach=True)
+                        raw_loss_actor, _metrics_training, _other_data_model = self.model.compute_loss(batch, sigmoid_lagrange)
                         # raw_critic_loss, _metrics_critic_training = self.model.compute_critic_loss(batch, ema_model=self.ema_model)
 
                         # loss = (raw_loss + raw_critic_loss) / cfg.training.gradient_accumulate_every
@@ -182,8 +193,9 @@ class TrainDiffusionUnetHybridWorkspace(BaseWorkspace):
                             self.optimizer.zero_grad()
                             lr_scheduler.step()
 
-                        self.model.update_lagrange(raw_loss_lagrange)
-                        
+                        raw_loss_lagrange, _metrics_lagrange = self.compute_loss_lagrange(action_predictions=_other_data_model["action_predictions"], batch=batch)
+                        self.update_lagrange(raw_loss_lagrange)
+
                         # update ema
                         if cfg.training.use_ema:
                             ema.step(self.model)
@@ -198,7 +210,7 @@ class TrainDiffusionUnetHybridWorkspace(BaseWorkspace):
                             'epoch': self.epoch,
                             'lr': lr_scheduler.get_last_lr()[0],
                             **_metrics_training,
-                            # **_metrics_critic_training,
+                            **_metrics_lagrange,
                         }
 
                         is_last_batch = (batch_idx == (len(train_dataloader)-1))
@@ -238,7 +250,7 @@ class TrainDiffusionUnetHybridWorkspace(BaseWorkspace):
                                 leave=False, mininterval=cfg.training.tqdm_interval_sec) as tepoch:
                             for batch_idx, batch in enumerate(tepoch):
                                 batch = dict_apply(batch, lambda x: x.to(device, non_blocking=True))
-                                loss_actor, _, _metrics = self.model.compute_loss(batch)
+                                loss_actor, _metrics, _ = self.model.compute_loss(batch, sigmoid_lagrange=self.get_sigmoid_lagrange(detach=True))
                                 val_losses.append(loss_actor)
                                 list_metrics.append(_metrics)
                                 if (cfg.training.max_val_steps is not None) \
@@ -459,6 +471,36 @@ class TrainDiffusionUnetHybridWorkspace(BaseWorkspace):
                 self.global_step += 1
                 self.epoch += 1
 
+    def compute_loss_lagrange(self, action_predictions, batch, ):
+        mse = F.mse_loss(action_predictions['action_pred'], batch['action'])  # todo verify if action_predictions are of this form
+        lagrange_sigmoid = self.get_sigmoid_lagrange()
+        constraint_loss = lagrange_sigmoid * (mse - self.eps_lagrange_constraint_mse_predictions)
+
+        lagrangian = self.lagrange_parameter.data
+        sigmoid_lagrange = self.get_sigmoid_lagrange(detach=True)
+
+        metrics = {
+            "sigmoid_lagrange": sigmoid_lagrange.item(),
+            "lagrange": lagrangian.detach().item(),
+        }
+        return constraint_loss, metrics
+
+    def get_sigmoid_lagrange(self, detach=False):
+        if detach:
+            return torch.sigmoid(self.lagrange_parameter.detach())
+        else:
+            return torch.sigmoid(self.lagrange_parameter)
+
+    def postprocess_clip_lagrange(self):
+        # Keep the lagrange parameter in a tractable range: -15, 15
+        self.lagrange_parameter.data = torch.clamp(self.lagrange_parameter.data, -15., 15.)
+
+    def update_lagrange(self, loss, postprocess_clip=True):
+        self.lagrange_optimizer.zero_grad()
+        loss.backward()
+        self.lagrange_optimizer.step()
+        if postprocess_clip:
+            self.postprocess_clip_lagrange()
 
 @hydra.main(
     version_base=None,
