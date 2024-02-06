@@ -89,7 +89,9 @@ class EnvControlWrapper:
         # init_positions = np.load(osp.join(osp.dirname(__file__), 'obs_with_time.npy'))[:, 1:]
         # self.init_pos = init_positions[len(init_positions) // 2,:7]
         # self.init_pos = init_positions[len(init_positions) // 3, :7]
-        self.init_pos = np.asarray([-0.38435703, -0.82782065, 0.25952787, -2.3897604, 0.18524243, 1.5886066, 0.59382302])
+
+        # self.init_pos = np.asarray([-0.38435703, -0.82782065, 0.25952787, -2.3897604, 0.18524243, 1.5886066, 0.59382302])
+        self.init_pos = np.asarray([-0.00435703, -0.52782065, 0.25952787, -2.3897604, 0.18524243, 1.5886066, 0.59382302])  # initial position near stone container
         self._jstate = None
 
         self.n_obs_steps = n_obs_steps
@@ -380,15 +382,20 @@ class DiffusionController(NodeParameterMixin,
                 print(dict_apply(stacked_obs,  lambda x:x.shape))
 
                 action_dict = self.policy.predict_action(obs_dict)
+
+                total_score, score_metrics = torch.vmap(DDIMGuidedScheduler.scoring_fn, in_dims=(0, None, None, None))(action_dict['action'], 8, 8-2, 2)
+
                 np_action_dict = dict_apply(action_dict,
                                             lambda x: x.detach().to('cpu').numpy())
 
                 action = np_action_dict['action']
                 metrics = np_action_dict['metrics']
-                wandb.log(metrics)
+                wandb.log({**metrics, **score_metrics, "score": total_score})
                 array_dq = action.reshape(*action.shape[1:])
 
                 self.env.push_actions([_dq for _dq in array_dq])
+
+                # print("AVG total score", sum(list_total_score) / len(list_total_score))
                 # self.env.push_actions([array_dq[0]])
 
         action_to_execute = self.env.get_from_queue_actions()
@@ -436,29 +443,46 @@ class DiffusionController(NodeParameterMixin,
     #     'diffusion_policy','config'))
 )
 def main(args=None):
-    # ckpt_path = "/home/ros/humble/src/diffusion_policy/data/outputs/2024.01.16/19.33.40_train_diffusion_unet_image_franka_kitchen_lowdim/checkpoints/latest.ckpt"
-    # ckpt_path = "/home/ros/humble/src/diffusion_policy/data/outputs/2024.01.26/12.15.56_train_diffusion_unet_image_franka_kitchen_lowdim/checkpoints/latest.ckpt"  # trained to also optimize actions
-    ckpt_path = "/home/ros/humble/src/diffusion_policy/data/outputs/2024.01.30/11.31.12_train_diffusion_unet_image_franka_kitchen_lowdim/checkpoints/latest.ckpt"  # trained to also optimize actions
+
+    # ckpt_path_to_load = "/home/ros/humble/src/diffusion_policy/data/outputs/2024.01.31/19.22.29_train_diffusion_unet_image_franka_kitchen_lowdim/checkpoints/latest.ckpt"  # trained to NOT optimize actions (backward incompatible at the moment)
+    ckpt_path_to_load = "/home/ros/humble/src/diffusion_policy/data/outputs/2024.02.06/10.22.07_train_diffusion_unet_image_franka_kitchen_lowdim/checkpoints/latest.ckpt"  # trained to optimize actions
+    ckpt_path_cfg = "/home/ros/humble/src/diffusion_policy/data/outputs/2024.02.06/10.22.07_train_diffusion_unet_image_franka_kitchen_lowdim/checkpoints/latest.ckpt"  # trained to optimize actions
+
     n_obs_steps = 2
     n_action_steps = 8
     path_bag_robot_description = "/home/ros/humble/src/read-db/rosbag2_2024_01_16-19_05_24/"
 
-    payload = torch.load(open(ckpt_path, 'rb'), pickle_module=dill)
+    # Get template workspace
+    payload = torch.load(open(ckpt_path_cfg, 'rb'), pickle_module=dill)
     cfg = payload['cfg']
     cls = hydra.utils.get_class(cfg._target_)
     workspace = cls(cfg)
     workspace: BaseWorkspace
     workspace.load_payload(payload, exclude_keys=None, include_keys=None)
+
+    # Get model to load
+    payload = torch.load(open(ckpt_path_to_load, 'rb'), pickle_module=dill)
+    cfg = payload['cfg']
+    print(payload['state_dicts']["model"])
+    # model_to_load = hydra.utils.instantiate(cfg.policy)
+    workspace.model.load_state_dict(payload['state_dicts']["model"])
+
+    # extract model
     _config_noise_scheduler = {**copy.deepcopy(cfg.policy.noise_scheduler)}
     del _config_noise_scheduler["_target_"]
+    # model_to_load = workspace.model
     workspace.model.noise_scheduler = DDIMGuidedScheduler(coefficient_reward=0., **_config_noise_scheduler)
+    # workspace.model = model_to_load
 
     # configure logging
     output_dir = HydraConfig.get().runtime.output_dir
+    dict_logging = {**cfg.logging}
+    dict_logging["project"] = "Real-world Robot Analysis"
     wandb.init(
         dir=str(output_dir),
-        config=OmegaConf.to_container(cfg, resolve=True),
-        **cfg.logging
+        config={**OmegaConf.to_container(cfg, resolve=True),
+                "loaded_path": ckpt_path_to_load},
+        **dict_logging
     )
 
     # workspace: BaseWorkspace = TrainDiffusionUnetLowdimWorkspace(cfg)
