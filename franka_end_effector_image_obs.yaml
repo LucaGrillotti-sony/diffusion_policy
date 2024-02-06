@@ -58,7 +58,7 @@ lagrange_optimizer:
   weight_decay: 1.0e-06
 policy:
   _target_: diffusion_policy.policy.diffusion_unet_hybrid_image_policy.DiffusionUnetHybridImagePolicy
-  eta_coeff_critic: 0.01
+  eta_coeff_critic: 0.001
   cond_predict_scale: true
   crop_shape:
     - 216
@@ -91,18 +91,6 @@ policy:
           - 240
           - 320
         type: rgb
-#      camera_2:
-#        shape:
-#          - 3
-#          - 240
-#          - 320
-#        type: rgb
-#      camera_3:
-#        shape:
-#          - 3
-#          - 240
-#          - 320
-#        type: rgb
       eef:
         shape:
           - 7

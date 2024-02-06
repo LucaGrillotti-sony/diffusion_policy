@@ -47,12 +47,19 @@ def main(new_cfg):
     workspace.load_payload(payload, exclude_keys=None, include_keys=None)
     print(4)
     old_model = workspace.model
+    old_optimizer = workspace.optimizer
+    print("OLD MODEL", old_model.eta_coeff_critic)
 
     OmegaConf.resolve(new_cfg)
 
     cls = hydra.utils.get_class(new_cfg._target_)
     new_workspace: BaseWorkspace = cls(new_cfg)
+
+    #  /!\ Warning: also copy optimizer!!
     new_workspace.model = old_model
+    new_workspace.optimizer = old_optimizer
+
+    print("NEW MODEL", new_workspace.model.eta_coeff_critic)
     new_workspace.run()
 
 

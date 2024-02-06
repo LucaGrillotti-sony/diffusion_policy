@@ -180,7 +180,7 @@ class TrainDiffusionUnetHybridWorkspace(BaseWorkspace):
                             train_sampling_batch = batch
 
                         # compute loss
-                        sigmoid_lagrange = self.get_sigmoid_lagrange(detach=True).to(cfg.training.device)
+                        sigmoid_lagrange = self.get_sigmoid_lagrange(detach=True)
                         raw_loss_actor, _metrics_training, _other_data_model = self.model.compute_loss(batch, sigmoid_lagrange)
                         # raw_critic_loss, _metrics_critic_training = self.model.compute_critic_loss(batch, ema_model=self.ema_model)
 

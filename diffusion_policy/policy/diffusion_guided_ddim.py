@@ -175,7 +175,7 @@ class DDIMGuidedScheduler(SchedulerMixin, ConfigMixin):
 
     @classmethod
     def scoring_fn(cls, array_actions, n_horizon, n_actions, n_obs):
-        coeff_speed = 0.1 # TODO: hyperparameter
+        coeff_speed = 0.1  # TODO: hyperparameter
         coeff_acceleration = 1.
 
         assert array_actions.shape[-2] == n_horizon
