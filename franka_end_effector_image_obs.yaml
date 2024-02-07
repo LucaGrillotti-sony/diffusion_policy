@@ -80,9 +80,9 @@ policy:
     - 288
   diffusion_step_embed_dim: 128
   down_dims:
-  - 256
-  - 512
-  - 1024
+    - 256
+    - 512
+    - 1024
   eval_fixed_crop: true
   horizon: 16
   kernel_size: 5

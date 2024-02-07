@@ -215,7 +215,7 @@ class TrainDiffusionUnetHybridWorkspace(BaseWorkspace):
                         self.update_lagrange(raw_loss_lagrange)
 
                         # Update critic
-                        loss_critic = self.critic.compute_critic_loss(batch, nobs_features=_other_data_model['nobs_features'], critic_target=critic_target)
+                        loss_critic, metrics_critic = self.critic.compute_critic_loss(batch, nobs_features=_other_data_model['nobs_features'], critic_target=self.critic_target, policy=self.model)
                         loss_critic.backward()
                         self.critic_optimizer.step()
                         self.critic_optimizer.zero_grad()

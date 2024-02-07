@@ -36,14 +36,14 @@ class ConditionalUnet1DCritic(nn.Module):
         all_dims = [input_dim] + list(down_dims)
         start_dim = down_dims[0]
 
-        dsed = diffusion_step_embed_dim
-        diffusion_step_encoder = nn.Sequential(
-            SinusoidalPosEmb(dsed),
-            nn.Linear(dsed, dsed * 4),
-            nn.Mish(),
-            nn.Linear(dsed * 4, dsed),
-        )
-        cond_dim = dsed
+        # dsed = diffusion_step_embed_dim
+        # diffusion_step_encoder = nn.Sequential(
+        #     SinusoidalPosEmb(dsed),
+        #     nn.Linear(dsed, dsed * 4),
+        #     nn.Mish(),
+        #     nn.Linear(dsed * 4, dsed),
+        # )
+        cond_dim = 0
         if global_cond_dim is not None:
             cond_dim += global_cond_dim
 
@@ -98,11 +98,13 @@ class ConditionalUnet1DCritic(nn.Module):
         final_dim = all_dims[-1]
         critic_value_dim = 1
         final_conv = nn.Sequential(
-            Conv1dBlock(final_dim, final_dim, kernel_size=kernel_size),
-            nn.Conv1d(final_dim, critic_value_dim, 1),
+            nn.Flatten(),
+            nn.Linear(in_features=final_dim * 2, out_features=256),
+            nn.SELU(),
+            nn.Linear(in_features=256, out_features=1)
         )
 
-        self.diffusion_step_encoder = diffusion_step_encoder
+        # self.diffusion_step_encoder = diffusion_step_encoder
         self.local_cond_encoder = local_cond_encoder
         self.down_modules = down_modules
         self.final_conv = final_conv
@@ -124,6 +126,7 @@ class ConditionalUnet1DCritic(nn.Module):
         sample = einops.rearrange(sample, 'b h t -> b t h')
 
         global_feature = global_cond
+
 
         # encode local features
         h_local = list()
@@ -150,7 +153,7 @@ class ConditionalUnet1DCritic(nn.Module):
 
         x = self.final_conv(x)
 
-        x = einops.rearrange(x, 'b t h -> b h t')
+        # x = einops.rearrange(x, 'b t h -> b h t')
         return x
 
 
@@ -230,19 +233,29 @@ class DoubleCritic(nn.Module):
         rewards, _ = torch.vmap(DDIMGuidedScheduler.scoring_fn, in_dims=(0, None, None, None))(action, self.horizon, self.n_action_steps, self.n_obs_steps)
         return rewards
 
-    def compute_critic_loss(self, batch, nobs_features, critic_target: DoubleCritic):
+    def extract_executed_actions(self, action_full_horizon):
+        # get action
+        start = self.n_obs_steps - 1
+        end = start + self.n_action_steps
+        executed_action = action_full_horizon[:, start:end]
+        return executed_action
+
+    def compute_critic_loss(self, batch, nobs_features, critic_target: DoubleCritic, policy):
         nobs_features = nobs_features.detach()
 
         # normalize input
         assert 'valid_mask' not in batch
-        assert self
-        nactions = self.normalizer['action'].normalize(batch['action'])
+        action_full_horizon = batch['action']
+        executed_actions = self.extract_executed_actions(action_full_horizon)
+        nactions = self.normalizer['action'].normalize(executed_actions)
         batch_size = nactions.shape[0]
 
         # handle different ways of passing observation
         local_cond = None
+        value = next(iter(batch["obs"].values()))
+        B, To = value.shape[:2]
         if self.obs_as_global_cond:
-            global_cond = nobs_features.reshape(batch_size, -1)
+            global_cond = nobs_features.reshape(B, -1)
         else:
             raise NotImplementedError
 
@@ -256,19 +269,19 @@ class DoubleCritic(nn.Module):
         critic_values_1 = self.critic_model_1(nactions, local_cond=local_cond, global_cond=global_cond)
         critic_values_2 = self.critic_model_2(nactions, local_cond=local_cond, global_cond=global_cond)
 
-        actions_target = critic_target.predict_action(next_obs)
+        actions_target = policy.predict_action(next_obs)
         nactions_target = self.normalizer['action'].normalize(actions_target['action'])
         critic_target_values_1 = critic_target.critic_model_1(nactions_target, local_cond=local_cond,
                                                               global_cond=global_cond)
         critic_target_values_2 = critic_target.critic_model_2(nactions_target, local_cond=local_cond,
                                                               global_cond=global_cond)
         concat_critic_target_values = torch.cat([critic_target_values_1, critic_target_values_2], dim=-1)
-        critic_target_values = torch.min(concat_critic_target_values, dim=-1)
-        critic_target_values = rewards + gamma * critic_target_values
+        critic_target_values = torch.min(concat_critic_target_values, dim=-1)[0]
+        critic_target_values = rewards + gamma * critic_target_values.ravel()
         critic_target_values = critic_target_values.detach()
 
-        loss_critic = F.mse_loss(critic_values_1, critic_target_values, reduction='none').mean() + \
-                      F.mse_loss(critic_values_2, critic_target_values, reduction='none').mean()
+        loss_critic = F.mse_loss(critic_values_1.ravel(), critic_target_values.ravel(), reduction='none').mean() + \
+                      F.mse_loss(critic_values_2.ravel(), critic_target_values.ravel(), reduction='none').mean()
         # loss_critic = loss_critic.mean()
 
         metrics = {
