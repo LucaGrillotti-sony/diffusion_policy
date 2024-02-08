@@ -240,7 +240,7 @@ class DoubleCritic(nn.Module):
         executed_action = action_full_horizon[:, start:end]
         return executed_action
 
-    def compute_critic_loss(self, batch, nobs_features, critic_target: DoubleCritic, policy):
+    def compute_critic_loss(self, batch, nobs_features, critic_target: DoubleCritic, policy, rewards):
         nobs_features = nobs_features.detach()
 
         # normalize input
@@ -260,7 +260,7 @@ class DoubleCritic(nn.Module):
             raise NotImplementedError
 
         next_obs = batch['next_obs']
-        rewards = self.calculate_reward(batch['obs'], batch['action'], next_obs)
+        # rewards = self.calculate_reward(batch['obs'], batch['action'], next_obs)
         gamma = self.gamma
 
         # generate impainting mask

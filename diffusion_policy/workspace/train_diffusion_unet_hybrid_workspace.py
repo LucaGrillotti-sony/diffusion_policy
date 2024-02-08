@@ -240,6 +240,7 @@ class TrainDiffusionUnetHybridWorkspace(BaseWorkspace):
                         self.classifier_optimizer.zero_grad()
 
                         # Update critic
+                        rewards = self.reward_function(obs=batch['obs'], action=batch['action'])
                         loss_critic, metrics_critic = self.critic.compute_critic_loss(batch,
                                                                                       nobs_features=_other_data_model['nobs_features'],
                                                                                       critic_target=self.critic_target,
@@ -329,9 +330,8 @@ class TrainDiffusionUnetHybridWorkspace(BaseWorkspace):
                             )
                             step_log.update(dict_metrics)
 
-
                 # run diffusion sampling on a training batch
-                if (self.epoch % cfg.training.sample_every) == 0:
+                if self.epoch % cfg.training.sample_every == 0:
                     with torch.no_grad():
                         # sample trajectory from training set, and evaluate difference
                         batch = dict_apply(train_sampling_batch, lambda x: x.to(device, non_blocking=True))
@@ -581,6 +581,7 @@ class TrainDiffusionUnetHybridWorkspace(BaseWorkspace):
 
         return full_reward
 
+
 @hydra.main(
     version_base=None,
     config_path=str(pathlib.Path(__file__).parent.parent.joinpath("config")), 
@@ -588,6 +589,7 @@ class TrainDiffusionUnetHybridWorkspace(BaseWorkspace):
 def main(cfg):
     workspace = TrainDiffusionUnetHybridWorkspace(cfg)
     workspace.run()
+
 
 if __name__ == "__main__":
     main()
