@@ -3,6 +3,7 @@ import math
 from diffusion_policy.model.diffusion.conditional_unet1d_critic import DoubleCritic
 from diffusion_policy.networks.classifier import ClassifierStageScooping
 from diffusion_policy.networks.trainer_classifier import TrainerClassifier
+from diffusion_policy.policy.diffusion_guided_ddim import DDIMGuidedScheduler
 
 if __name__ == "__main__":
     import sys
@@ -80,6 +81,18 @@ class TrainDiffusionUnetHybridWorkspace(BaseWorkspace):
         # configure training state
         self.global_step = 0
         self.epoch = 0
+
+        NUM_CLASSES = 3
+        IN_FEATURES_CLASSIFIER = 135
+
+        self.classifier = ClassifierStageScooping(in_features=IN_FEATURES_CLASSIFIER, number_of_classes=NUM_CLASSES)
+        self.classifier = self.classifier.to(cfg.training.device)
+        self.classifier_optimizer = torch.optim.AdamW(self.classifier.parameters(),
+                                                      betas=(0.95, 0.999),
+                                                      eps=1.0e-08,
+                                                      lr=0.0001,
+                                                      weight_decay=1.0e-06)
+
 
     def run(self):
         cfg = copy.deepcopy(self.cfg)
@@ -216,6 +229,16 @@ class TrainDiffusionUnetHybridWorkspace(BaseWorkspace):
                         raw_loss_lagrange, _metrics_lagrange = self.compute_loss_lagrange(sample_actions=_other_data_model["sample_actions"], batch=batch)
                         self.update_lagrange(raw_loss_lagrange)
 
+                        # Update classifier
+                        labels = batch['label']
+                        shape_labels = labels.shape
+                        nobs_features = _other_data_model['nobs_features'].detach()
+                        nobs_features = nobs_features.view(*shape_labels, -1)
+                        loss_classifier = self.classifier.compute_loss(nobs_features, labels)
+                        loss_classifier.backward()
+                        self.classifier_optimizer.step()
+                        self.classifier_optimizer.zero_grad()
+
                         # Update critic
                         loss_critic, metrics_critic = self.critic.compute_critic_loss(batch,
                                                                                       nobs_features=_other_data_model['nobs_features'],
@@ -239,6 +262,7 @@ class TrainDiffusionUnetHybridWorkspace(BaseWorkspace):
                             'global_step': self.global_step,
                             'epoch': self.epoch,
                             'lr': lr_scheduler.get_last_lr()[0],
+                            "loss_classifier": loss_classifier.item(),
                             **_metrics_training,
                             **_metrics_lagrange,
                             **metrics_critic,
@@ -281,9 +305,16 @@ class TrainDiffusionUnetHybridWorkspace(BaseWorkspace):
                                 leave=False, mininterval=cfg.training.tqdm_interval_sec) as tepoch:
                             for batch_idx, batch in enumerate(tepoch):
                                 batch = dict_apply(batch, lambda x: x.to(device, non_blocking=True))
-                                loss_actor, _metrics, _ = self.model.compute_loss(batch, sigmoid_lagrange=self.get_sigmoid_lagrange(detach=True))
+                                loss_actor, _metrics, _other_data_model = self.model.compute_loss(batch, sigmoid_lagrange=self.get_sigmoid_lagrange(detach=True))
+                                labels = batch['label']
+                                shape_labels = labels.shape
+                                nobs_features = _other_data_model['nobs_features'].detach()
+                                nobs_features = nobs_features.view(*shape_labels, -1)
+                                val_loss_classifier = self.classifier.compute_loss(nobs_features, labels)
+                                accuracy_classifier = self.classifier.accuracy(nobs_features, labels)
+
                                 val_losses.append(loss_actor)
-                                list_metrics.append(_metrics)
+                                list_metrics.append({**_metrics, "val_loss_classifier": val_loss_classifier.item(), "val_accuracy_classifier": accuracy_classifier.item()})
                                 if (cfg.training.max_val_steps is not None) \
                                     and batch_idx >= (cfg.training.max_val_steps-1):
                                     break
@@ -350,8 +381,6 @@ class TrainDiffusionUnetHybridWorkspace(BaseWorkspace):
                 self.epoch += 1
 
     def run_train_classifier(self, num_steps: int = 100):
-        NUM_CLASSES = 3
-        IN_FEATURES_CLASSIFIER = 135
 
         cfg = copy.deepcopy(self.cfg)
 
@@ -368,15 +397,11 @@ class TrainDiffusionUnetHybridWorkspace(BaseWorkspace):
         val_dataset = dataset.get_validation_dataset()
         val_dataloader = DataLoader(val_dataset, **cfg.val_dataloader)
 
-        classifier = ClassifierStageScooping(in_features=IN_FEATURES_CLASSIFIER, number_of_classes=NUM_CLASSES)
-        classifier = classifier.to(device)
         self.model = self.model.to(device)
 
         optimizer_to(self.optimizer, device)
 
         log_path = os.path.join(self.output_dir, 'logs_classifier.json.txt')
-
-        optimizer = torch.optim.AdamW(classifier.parameters(), betas=(0.95, 0.999), eps=1.0e-08, lr=0.0001, weight_decay=1.0e-06)
 
         dict_logging = {**cfg.logging, "name": str(self.output_dir), "project": "Classifier Training"}
 
@@ -409,14 +434,14 @@ class TrainDiffusionUnetHybridWorkspace(BaseWorkspace):
                         obs_features = obs_features.view(*shape_labels, -1)
 
 
-                        raw_loss = classifier.compute_loss(obs_features, labels)
-                        # accuracy = classifier.accuracy(obs_features, labels)
+                        raw_loss = self.classifier.compute_loss(obs_features, labels)
+                        # accuracy = self.classifier.accuracy(obs_features, labels)
                         raw_loss.backward()
 
                         # step optimizer
                         if self.global_step % cfg.training.gradient_accumulate_every == 0:
-                            optimizer.step()
-                            optimizer.zero_grad()
+                            self.classifier_optimizer.step()
+                            self.classifier_optimizer.zero_grad()
 
                         # logging
                         raw_loss_cpu = raw_loss.item()
@@ -461,8 +486,8 @@ class TrainDiffusionUnetHybridWorkspace(BaseWorkspace):
                                 obs_features = self.model.compute_obs_encoding(batch, detach=True)
                                 obs_features = obs_features.view(*shape_labels, -1)
 
-                                val_loss = classifier.compute_loss(obs_features, labels)
-                                accuracy = classifier.accuracy(obs_features, labels)
+                                val_loss = self.classifier.compute_loss(obs_features, labels)
+                                accuracy = self.classifier.accuracy(obs_features, labels)
                                 val_losses.append(val_loss)
                                 accuracies.append(accuracy)
                                 # list_metrics.append(_metrics)
@@ -486,7 +511,7 @@ class TrainDiffusionUnetHybridWorkspace(BaseWorkspace):
                 if (self.epoch % checkpoint_every) == 0:
                     # checkpointing
                     # TODO
-                    torch.save(classifier.state_dict(), os.path.join(self.output_dir, 'classifier.pth'))
+                    torch.save(self.classifier.state_dict(), os.path.join(self.output_dir, 'classifier.pth'))
 
                     # sanitize metric names
                     metric_dict = dict()
@@ -534,6 +559,27 @@ class TrainDiffusionUnetHybridWorkspace(BaseWorkspace):
         self.lagrange_optimizer.step()
         if postprocess_clip:
             self.postprocess_clip_lagrange()
+
+    def reward_function(self, obs, action,):
+        assert self.classifier is not None, "Classifier not set"
+
+        # calculate as done in the rest of the code using scoring_fn
+
+        base_reward = torch.vmap(DDIMGuidedScheduler.scoring_fn, in_dims=(0, None, None, None))(action, n_horizon=self.cfg.policy.horizon, n_actions=self.cfg.policy.n_action_steps, n_obs=self.cfg.policy.n_obs_steps)
+        base_reward = base_reward.ravel()
+
+        self.classifier : ClassifierStageScooping
+        predictions = self.classifier.prediction(obs, shape_batch=base_reward.shape[:-1])
+        predictions = predictions.ravel()
+
+        rewards_stage = torch.zeros_like(predictions)
+        rewards_stage[predictions == 0] = 0.
+        rewards_stage[predictions == 1] = 1.
+        rewards_stage[predictions == 2] = 1.
+
+        full_reward = base_reward + rewards_stage
+
+        return full_reward
 
 @hydra.main(
     version_base=None,
