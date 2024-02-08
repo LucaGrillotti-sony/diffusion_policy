@@ -245,7 +245,7 @@ class DoubleCritic(nn.Module):
 
         # normalize input
         assert 'valid_mask' not in batch
-        action_full_horizon = batch['action']
+        action_full_horizon = batch['action'].detach()
         executed_actions = self.extract_executed_actions(action_full_horizon)
         nactions = self.normalizer['action'].normalize(executed_actions)
         batch_size = nactions.shape[0]

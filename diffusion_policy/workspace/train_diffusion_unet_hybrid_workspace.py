@@ -1,3 +1,5 @@
+import math
+
 from diffusion_policy.model.diffusion.conditional_unet1d_critic import DoubleCritic
 from diffusion_policy.networks.classifier import ClassifierStageScooping
 from diffusion_policy.networks.trainer_classifier import TrainerClassifier
@@ -504,7 +506,7 @@ class TrainDiffusionUnetHybridWorkspace(BaseWorkspace):
         mse = F.mse_loss(sample_actions['action_pred'], batch['action']).detach().item()  # todo verify if action_predictions are of this form
         lagrange_sigmoid = self.get_sigmoid_lagrange()
         constraint_diff = mse - self.eps_lagrange_constraint_mse_predictions
-        constraint_loss = lagrange_sigmoid * constraint_diff / torch.mean(torch.abs(constraint_diff))
+        constraint_loss = lagrange_sigmoid * constraint_diff / math.fabs(constraint_diff)
 
         lagrangian = self.lagrange_parameter.data
         sigmoid_lagrange = self.get_sigmoid_lagrange(detach=True)
@@ -512,6 +514,7 @@ class TrainDiffusionUnetHybridWorkspace(BaseWorkspace):
         metrics = {
             "sigmoid_lagrange": sigmoid_lagrange.item(),
             "lagrange": lagrangian.detach().item(),
+            "loss_lagrange": constraint_loss.detach().item()
         }
         return constraint_loss, metrics
 

@@ -69,7 +69,7 @@ lagrange_optimizer:
     - 0.95
     - 0.999
   eps: 1.0e-08
-  lr: 0.00001
+  lr: 0.001
   weight_decay: 1.0e-06
 policy:
   _target_: diffusion_policy.policy.diffusion_unet_hybrid_image_policy.DiffusionUnetHybridImagePolicy
