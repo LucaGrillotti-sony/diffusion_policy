@@ -215,7 +215,10 @@ class TrainDiffusionUnetHybridWorkspace(BaseWorkspace):
                         self.update_lagrange(raw_loss_lagrange)
 
                         # Update critic
-                        loss_critic, metrics_critic = self.critic.compute_critic_loss(batch, nobs_features=_other_data_model['nobs_features'], critic_target=self.critic_target, policy=self.model)
+                        loss_critic, metrics_critic = self.critic.compute_critic_loss(batch,
+                                                                                      nobs_features=_other_data_model['nobs_features'],
+                                                                                      critic_target=self.critic_target,
+                                                                                      policy=self.model)
                         loss_critic.backward()
                         self.critic_optimizer.step()
                         self.critic_optimizer.zero_grad()
@@ -236,6 +239,7 @@ class TrainDiffusionUnetHybridWorkspace(BaseWorkspace):
                             'lr': lr_scheduler.get_last_lr()[0],
                             **_metrics_training,
                             **_metrics_lagrange,
+                            **metrics_critic,
                         }
 
                         is_last_batch = (batch_idx == (len(train_dataloader)-1))
@@ -499,7 +503,8 @@ class TrainDiffusionUnetHybridWorkspace(BaseWorkspace):
     def compute_loss_lagrange(self, sample_actions, batch, ):
         mse = F.mse_loss(sample_actions['action_pred'], batch['action']).detach().item()  # todo verify if action_predictions are of this form
         lagrange_sigmoid = self.get_sigmoid_lagrange()
-        constraint_loss = lagrange_sigmoid * (mse - self.eps_lagrange_constraint_mse_predictions)
+        constraint_diff = mse - self.eps_lagrange_constraint_mse_predictions
+        constraint_loss = lagrange_sigmoid * constraint_diff / torch.mean(torch.abs(constraint_diff))
 
         lagrangian = self.lagrange_parameter.data
         sigmoid_lagrange = self.get_sigmoid_lagrange(detach=True)
