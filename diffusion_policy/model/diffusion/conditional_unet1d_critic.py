@@ -222,16 +222,24 @@ class DoubleCritic(nn.Module):
         return (self.critic_model_1(x, local_cond, global_cond, **kwargs),
                 self.critic_model_2(x, local_cond, global_cond, **kwargs))
 
+    def get_min_critics(self, x, local_cond=None, global_cond=None, consider_action_full_horizon=True, **kwargs, ):
+        if consider_action_full_horizon:
+            x = self.extract_executed_actions(x)
+        critic_values_1 = self.critic_model_1(x, local_cond, global_cond, **kwargs)
+        critic_values_2 = self.critic_model_2(x, local_cond, global_cond, **kwargs)
+        concat_critic_values = torch.cat([critic_values_1, critic_values_2], dim=-1)
+        return torch.min(concat_critic_values, dim=-1)[0]
+
+    def get_one_critic(self, x, local_cond=None, global_cond=None, consider_action_full_horizon=True, **kwargs):
+        if consider_action_full_horizon:
+            x = self.extract_executed_actions(x)
+
+        return self.critic_model_1(x, local_cond, global_cond, **kwargs)
+
     def set_normalizer(self, normalizer):
         if self.normalizer is not None:
             raise ValueError("Normalizer already set")
         self.normalizer = normalizer
-
-    def calculate_reward(self, obs, action, next_obs):
-        start_index = self.n_obs_steps - 1
-        end_index = start_index + self.n_action_steps
-        rewards, _ = torch.vmap(DDIMGuidedScheduler.scoring_fn, in_dims=(0, None, None, None))(action, self.horizon, self.n_action_steps, self.n_obs_steps)
-        return rewards
 
     def extract_executed_actions(self, action_full_horizon):
         # get action
@@ -240,24 +248,34 @@ class DoubleCritic(nn.Module):
         executed_action = action_full_horizon[:, start:end]
         return executed_action
 
+    def get_global_cond(self, batch, nobs_features):
+        nobs_features = nobs_features.detach()
+
+        value = next(iter(batch["obs"].values()))
+        B, To = value.shape[:2]
+
+        if self.obs_as_global_cond:
+            global_cond = nobs_features.reshape(B, -1)
+        else:
+            raise NotImplementedError
+        return global_cond
+
+    def get_normalized_actions(self, batch):
+        actions = batch['action'].detach()
+        nactions = self.normalizer['action'].normalize(actions)
+        return nactions
+
     def compute_critic_loss(self, batch, nobs_features, critic_target: DoubleCritic, policy, rewards):
         nobs_features = nobs_features.detach()
 
         # normalize input
         assert 'valid_mask' not in batch
-        action_full_horizon = batch['action'].detach()
-        executed_actions = self.extract_executed_actions(action_full_horizon)
-        nactions = self.normalizer['action'].normalize(executed_actions)
-        batch_size = nactions.shape[0]
+        nactions = self.get_normalized_actions(batch)
 
         # handle different ways of passing observation
         local_cond = None
-        value = next(iter(batch["obs"].values()))
-        B, To = value.shape[:2]
-        if self.obs_as_global_cond:
-            global_cond = nobs_features.reshape(B, -1)
-        else:
-            raise NotImplementedError
+
+        global_cond = self.get_global_cond(batch, nobs_features)
 
         next_obs = batch['next_obs']
         # rewards = self.calculate_reward(batch['obs'], batch['action'], next_obs)
@@ -270,13 +288,9 @@ class DoubleCritic(nn.Module):
         critic_values_2 = self.critic_model_2(nactions, local_cond=local_cond, global_cond=global_cond)
 
         actions_target = policy.predict_action(next_obs)
-        nactions_target = self.normalizer['action'].normalize(actions_target['action'])
-        critic_target_values_1 = critic_target.critic_model_1(nactions_target, local_cond=local_cond,
-                                                              global_cond=global_cond)
-        critic_target_values_2 = critic_target.critic_model_2(nactions_target, local_cond=local_cond,
-                                                              global_cond=global_cond)
-        concat_critic_target_values = torch.cat([critic_target_values_1, critic_target_values_2], dim=-1)
-        critic_target_values = torch.min(concat_critic_target_values, dim=-1)[0]
+        nactions_target = self.normalizer['action'].normalize(actions_target['action_pred'])
+        critic_target_values = critic_target.get_min_critics(nactions_target, local_cond=local_cond, global_cond=global_cond, consider_action_full_horizon=True)
+
         critic_target_values = rewards + gamma * critic_target_values.ravel()
         critic_target_values = critic_target_values.detach()
 

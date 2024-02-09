@@ -185,8 +185,6 @@ class DDIMGuidedScheduler(SchedulerMixin, ConfigMixin):
         array_actions = array_actions[:n_actions]
         assert array_actions.shape[0] > n_actions
 
-
-
         # array_actions = array_actions[]
         array_actions = array_actions[:, :3]  # TODO: decide if we take 1st actions only
         differences = array_actions[1:] - array_actions[:-1]
@@ -365,7 +363,6 @@ class DDIMGuidedScheduler(SchedulerMixin, ConfigMixin):
         #             print("mean score", mean_score)
         #             gradient_classifier = torch.autograd.grad(mean_score, array_actions)[0]
         #             array_actions = array_actions + 1 * gradient_classifier
-
 
         if eta > 0:
             # randn_like does not support generator https://github.com/pytorch/pytorch/issues/27072
