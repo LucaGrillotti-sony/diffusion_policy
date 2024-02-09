@@ -115,11 +115,12 @@ class RealFrankaImageDataset(BaseImageDataset):
             elif type == 'low_dim':
                 lowdim_keys.append(key)
         
-        key_first_k = dict()
-        if n_obs_steps is not None:
-            # only take first k obs from images
-            for key in rgb_keys + lowdim_keys:
-                key_first_k[key] = n_obs_steps
+        # key_first_k = dict()
+        # if n_obs_steps is not None:
+        #     # only take first k obs from images
+        #     for key in rgb_keys + lowdim_keys:
+        #         key_first_k[key] = n_obs_steps
+        empty_key_first_k = dict()
 
         val_mask = get_val_mask(
             n_episodes=replay_buffer.n_episodes, 
@@ -137,7 +138,7 @@ class RealFrankaImageDataset(BaseImageDataset):
             pad_before=pad_before, 
             pad_after=pad_after,
             episode_mask=train_mask,
-            key_first_k=key_first_k)
+            key_first_k=empty_key_first_k)
         
         self.replay_buffer = replay_buffer
         self.sampler = sampler

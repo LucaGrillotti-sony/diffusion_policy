@@ -178,11 +178,12 @@ class DDIMGuidedScheduler(SchedulerMixin, ConfigMixin):
         coeff_speed = 0.1 # TODO: hyperparameter
         coeff_acceleration = 1.
 
-        assert array_actions.shape[-2] == n_horizon
+        assert array_actions.shape[0] == n_horizon
 
-        # take only the actions after the first observations.
+        # take only the actions after the first observations and with a length of n_actions
         array_actions = array_actions[n_obs-1:]
-        assert array_actions.shape[-2] > n_actions
+        array_actions = array_actions[:n_actions]
+        assert array_actions.shape[0] == n_actions
 
         # array_actions = array_actions[]
         array_actions = array_actions[:, :3]  # TODO: decide if we take 1st actions only
@@ -362,7 +363,6 @@ class DDIMGuidedScheduler(SchedulerMixin, ConfigMixin):
         #             print("mean score", mean_score)
         #             gradient_classifier = torch.autograd.grad(mean_score, array_actions)[0]
         #             array_actions = array_actions + 1 * gradient_classifier
-
 
         if eta > 0:
             # randn_like does not support generator https://github.com/pytorch/pytorch/issues/27072

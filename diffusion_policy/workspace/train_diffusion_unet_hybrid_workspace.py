@@ -1,5 +1,9 @@
+import math
+
+from diffusion_policy.model.diffusion.conditional_unet1d_critic import DoubleCritic
 from diffusion_policy.networks.classifier import ClassifierStageScooping
 from diffusion_policy.networks.trainer_classifier import TrainerClassifier
+from diffusion_policy.policy.diffusion_guided_ddim import DDIMGuidedScheduler
 
 if __name__ == "__main__":
     import sys
@@ -22,6 +26,9 @@ import wandb
 import tqdm
 import numpy as np
 import shutil
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
 from diffusion_policy.workspace.base_workspace import BaseWorkspace
 from diffusion_policy.policy.diffusion_unet_hybrid_image_policy import DiffusionUnetHybridImagePolicy
 from diffusion_policy.dataset.base_dataset import BaseImageDataset
@@ -57,9 +64,35 @@ class TrainDiffusionUnetHybridWorkspace(BaseWorkspace):
         self.optimizer = hydra.utils.instantiate(
             cfg.optimizer, params=self.model.parameters())
 
+        self.lagrange_parameter = torch.nn.Parameter(torch.Tensor([0.]), requires_grad=True)
+
+        self.lagrange_optimizer = hydra.utils.instantiate(
+            cfg.lagrange_optimizer, params=[self.lagrange_parameter])
+
+        self.eps_lagrange_constraint_mse_predictions = cfg.eps_lagrange_constraint_mse_predictions
+
+        # Critic networks and optimizer: todo
+        self.critic: DoubleCritic = hydra.utils.instantiate(cfg.critic, obs_feature_dim=self.model.obs_feature_dim)
+        self.critic_optimizer = hydra.utils.instantiate(
+            cfg.critic_optimizer, params=self.critic.parameters()
+        )
+        self.critic_target = copy.deepcopy(self.critic)
+
         # configure training state
         self.global_step = 0
         self.epoch = 0
+
+        NUM_CLASSES = 3
+        IN_FEATURES_CLASSIFIER = 135
+
+        self.classifier = ClassifierStageScooping(in_features=IN_FEATURES_CLASSIFIER, number_of_classes=NUM_CLASSES)
+        self.classifier = self.classifier.to(cfg.training.device)
+        self.classifier_optimizer = torch.optim.AdamW(self.classifier.parameters(),
+                                                      betas=(0.95, 0.999),
+                                                      eps=1.0e-08,
+                                                      lr=0.0001,
+                                                      weight_decay=1.0e-06)
+
 
     def run(self):
         cfg = copy.deepcopy(self.cfg)
@@ -83,8 +116,10 @@ class TrainDiffusionUnetHybridWorkspace(BaseWorkspace):
         val_dataloader = DataLoader(val_dataset, **cfg.val_dataloader)
 
         self.model.set_normalizer(normalizer)
+        self.critic.set_normalizer(normalizer)
         if cfg.training.use_ema:
             self.ema_model.set_normalizer(normalizer)
+        self.critic_target.set_normalizer(normalizer)
 
         # configure lr scheduler
         lr_scheduler = get_scheduler(
@@ -105,6 +140,10 @@ class TrainDiffusionUnetHybridWorkspace(BaseWorkspace):
             ema = hydra.utils.instantiate(
                 cfg.ema,
                 model=self.ema_model)
+        critic_target = hydra.utils.instantiate(
+            cfg.critic_target,
+            model=self.critic_target)
+
 
         # configure env
         env_runner: BaseImageRunner
@@ -137,8 +176,12 @@ class TrainDiffusionUnetHybridWorkspace(BaseWorkspace):
         # device transfer
         device = torch.device(cfg.training.device)
         self.model.to(device)
+        self.lagrange_parameter.to(device)
+        self.critic.to(device)
+
         if self.ema_model is not None:
             self.ema_model.to(device)
+        self.critic_target.to(device)
         optimizer_to(self.optimizer, device)
 
         # save batch for sampling
@@ -169,25 +212,52 @@ class TrainDiffusionUnetHybridWorkspace(BaseWorkspace):
                             train_sampling_batch = batch
 
                         # compute loss
-                        raw_loss, _metrics_training = self.model.compute_loss(batch)
+                        sigmoid_lagrange = self.get_sigmoid_lagrange(detach=True).to(cfg.training.device)
+                        raw_loss_actor, _metrics_training, _other_data_model = self.model.compute_loss(batch, sigmoid_lagrange, critic_network=self.critic)
                         # raw_critic_loss, _metrics_critic_training = self.model.compute_critic_loss(batch, ema_model=self.ema_model)
 
                         # loss = (raw_loss + raw_critic_loss) / cfg.training.gradient_accumulate_every
-                        loss = raw_loss / cfg.training.gradient_accumulate_every
-                        loss.backward()
+                        loss_actor = raw_loss_actor / cfg.training.gradient_accumulate_every
+                        loss_actor.backward()
 
                         # step optimizer
                         if self.global_step % cfg.training.gradient_accumulate_every == 0:
                             self.optimizer.step()
                             self.optimizer.zero_grad()
                             lr_scheduler.step()
-                        
-                        # update ema
+
+                        raw_loss_lagrange, _metrics_lagrange = self.compute_loss_lagrange(sample_actions=_other_data_model["sample_actions"], batch=batch)
+                        self.update_lagrange(raw_loss_lagrange)
+
+                        # Update classifier
+                        labels = batch['label']
+                        shape_labels = labels.shape
+                        nobs_features = _other_data_model['nobs_features'].clone().detach()
+                        nobs_features = nobs_features.view(*shape_labels, -1)
+                        loss_classifier = self.classifier.compute_loss(nobs_features, labels)
+                        loss_classifier.backward()
+                        self.classifier_optimizer.step()
+                        self.classifier_optimizer.zero_grad()
+
+                        # Update critic
+                        # print(batch['action'].shape, nobs_features_flat.shape)
+                        rewards = self.reward_function(nobs_features=nobs_features, actions=batch['action'])
+                        loss_critic, metrics_critic = self.critic.compute_critic_loss(batch,
+                                                                                      nobs_features=_other_data_model['nobs_features'],
+                                                                                      critic_target=self.critic_target,
+                                                                                      policy=self.model,
+                                                                                      rewards=rewards,)
+                        loss_critic.backward()
+                        self.critic_optimizer.step()
+                        self.critic_optimizer.zero_grad()
+
+                        # update ema and critic target
                         if cfg.training.use_ema:
                             ema.step(self.model)
+                        critic_target.step(self.critic)
 
                         # logging
-                        raw_loss_cpu = raw_loss.item()
+                        raw_loss_cpu = raw_loss_actor.item()
                         tepoch.set_postfix(loss=raw_loss_cpu, refresh=False)
                         train_losses.append(raw_loss_cpu)
                         step_log = {
@@ -195,8 +265,10 @@ class TrainDiffusionUnetHybridWorkspace(BaseWorkspace):
                             'global_step': self.global_step,
                             'epoch': self.epoch,
                             'lr': lr_scheduler.get_last_lr()[0],
+                            "loss_classifier": loss_classifier.item(),
                             **_metrics_training,
-                            # **_metrics_critic_training,
+                            **_metrics_lagrange,
+                            **metrics_critic,
                         }
 
                         is_last_batch = (batch_idx == (len(train_dataloader)-1))
@@ -236,9 +308,16 @@ class TrainDiffusionUnetHybridWorkspace(BaseWorkspace):
                                 leave=False, mininterval=cfg.training.tqdm_interval_sec) as tepoch:
                             for batch_idx, batch in enumerate(tepoch):
                                 batch = dict_apply(batch, lambda x: x.to(device, non_blocking=True))
-                                loss, _metrics = self.model.compute_loss(batch)
-                                val_losses.append(loss)
-                                list_metrics.append(_metrics)
+                                loss_actor, _metrics, _other_data_model = self.model.compute_loss(batch, sigmoid_lagrange=self.get_sigmoid_lagrange(detach=True))
+                                labels = batch['label']
+                                shape_labels = labels.shape
+                                nobs_features_flat = _other_data_model['nobs_features'].detach()
+                                nobs_features_flat = nobs_features_flat.view(*shape_labels, -1)
+                                val_loss_classifier = self.classifier.compute_loss(nobs_features_flat, labels)
+                                accuracy_classifier = self.classifier.accuracy(nobs_features_flat, labels)
+
+                                val_losses.append(loss_actor)
+                                list_metrics.append({**_metrics, "val_loss_classifier": val_loss_classifier.item(), "val_accuracy_classifier": accuracy_classifier.item()})
                                 if (cfg.training.max_val_steps is not None) \
                                     and batch_idx >= (cfg.training.max_val_steps-1):
                                     break
@@ -253,9 +332,8 @@ class TrainDiffusionUnetHybridWorkspace(BaseWorkspace):
                             )
                             step_log.update(dict_metrics)
 
-
                 # run diffusion sampling on a training batch
-                if (self.epoch % cfg.training.sample_every) == 0:
+                if self.epoch % cfg.training.sample_every == 0:
                     with torch.no_grad():
                         # sample trajectory from training set, and evaluate difference
                         batch = dict_apply(train_sampling_batch, lambda x: x.to(device, non_blocking=True))
@@ -305,8 +383,6 @@ class TrainDiffusionUnetHybridWorkspace(BaseWorkspace):
                 self.epoch += 1
 
     def run_train_classifier(self, num_steps: int = 100):
-        NUM_CLASSES = 3
-        IN_FEATURES_CLASSIFIER = 135
 
         cfg = copy.deepcopy(self.cfg)
 
@@ -323,15 +399,11 @@ class TrainDiffusionUnetHybridWorkspace(BaseWorkspace):
         val_dataset = dataset.get_validation_dataset()
         val_dataloader = DataLoader(val_dataset, **cfg.val_dataloader)
 
-        classifier = ClassifierStageScooping(in_features=IN_FEATURES_CLASSIFIER, number_of_classes=NUM_CLASSES)
-        classifier = classifier.to(device)
         self.model = self.model.to(device)
 
         optimizer_to(self.optimizer, device)
 
         log_path = os.path.join(self.output_dir, 'logs_classifier.json.txt')
-
-        optimizer = torch.optim.AdamW(classifier.parameters(), betas=(0.95, 0.999), eps=1.0e-08, lr=0.0001, weight_decay=1.0e-06)
 
         dict_logging = {**cfg.logging, "name": str(self.output_dir), "project": "Classifier Training"}
 
@@ -364,14 +436,14 @@ class TrainDiffusionUnetHybridWorkspace(BaseWorkspace):
                         obs_features = obs_features.view(*shape_labels, -1)
 
 
-                        raw_loss = classifier.compute_loss(obs_features, labels)
-                        # accuracy = classifier.accuracy(obs_features, labels)
+                        raw_loss = self.classifier.compute_loss(obs_features, labels)
+                        # accuracy = self.classifier.accuracy(obs_features, labels)
                         raw_loss.backward()
 
                         # step optimizer
                         if self.global_step % cfg.training.gradient_accumulate_every == 0:
-                            optimizer.step()
-                            optimizer.zero_grad()
+                            self.classifier_optimizer.step()
+                            self.classifier_optimizer.zero_grad()
 
                         # logging
                         raw_loss_cpu = raw_loss.item()
@@ -416,8 +488,8 @@ class TrainDiffusionUnetHybridWorkspace(BaseWorkspace):
                                 obs_features = self.model.compute_obs_encoding(batch, detach=True)
                                 obs_features = obs_features.view(*shape_labels, -1)
 
-                                val_loss = classifier.compute_loss(obs_features, labels)
-                                accuracy = classifier.accuracy(obs_features, labels)
+                                val_loss = self.classifier.compute_loss(obs_features, labels)
+                                accuracy = self.classifier.accuracy(obs_features, labels)
                                 val_losses.append(val_loss)
                                 accuracies.append(accuracy)
                                 # list_metrics.append(_metrics)
@@ -441,7 +513,7 @@ class TrainDiffusionUnetHybridWorkspace(BaseWorkspace):
                 if (self.epoch % checkpoint_every) == 0:
                     # checkpointing
                     # TODO
-                    torch.save(classifier.state_dict(), os.path.join(self.output_dir, 'classifier.pth'))
+                    torch.save(self.classifier.state_dict(), os.path.join(self.output_dir, 'classifier.pth'))
 
                     # sanitize metric names
                     metric_dict = dict()
@@ -457,6 +529,60 @@ class TrainDiffusionUnetHybridWorkspace(BaseWorkspace):
                 self.global_step += 1
                 self.epoch += 1
 
+    def compute_loss_lagrange(self, sample_actions, batch, ):
+        mse = F.mse_loss(sample_actions['action_pred'], batch['action']).detach().item()  # todo verify if action_predictions are of this form
+        lagrange_sigmoid = self.get_sigmoid_lagrange()
+        constraint_diff = mse - self.eps_lagrange_constraint_mse_predictions
+        constraint_loss = lagrange_sigmoid * constraint_diff / math.fabs(constraint_diff)
+
+        lagrangian = self.lagrange_parameter.data
+        sigmoid_lagrange = self.get_sigmoid_lagrange(detach=True)
+
+        metrics = {
+            "sigmoid_lagrange": sigmoid_lagrange.item(),
+            "lagrange": lagrangian.detach().item(),
+            "loss_lagrange": constraint_loss.detach().item()
+        }
+        return constraint_loss, metrics
+
+    def get_sigmoid_lagrange(self, detach=False):
+        if detach:
+            return torch.sigmoid(self.lagrange_parameter.detach()).to(self.cfg.training.device)
+        else:
+            return torch.sigmoid(self.lagrange_parameter).to(self.cfg.training.device)
+
+    def postprocess_clip_lagrange(self):
+        # Keep the lagrange parameter in a tractable range: -15, 15
+        self.lagrange_parameter.data = torch.clamp(self.lagrange_parameter.data, -15., 15.)
+
+    def update_lagrange(self, loss, postprocess_clip=True):
+        self.lagrange_optimizer.zero_grad()
+        loss.backward()
+        self.lagrange_optimizer.step()
+        if postprocess_clip:
+            self.postprocess_clip_lagrange()
+
+    def reward_function(self, nobs_features, actions, ):
+        assert self.classifier is not None, "Classifier not set"
+
+        # calculate as done in the rest of the code using scoring_fn
+
+        base_reward, _ = torch.vmap(DDIMGuidedScheduler.scoring_fn, in_dims=(0, None, None, None))(actions, self.cfg.policy.horizon, self.cfg.policy.n_action_steps, self.cfg.policy.n_obs_steps)
+        base_reward = base_reward.ravel()
+
+        self.classifier : ClassifierStageScooping
+        predictions = self.classifier.prediction(nobs_features, shape_batch=nobs_features.shape[:-1])
+        predictions = torch.max(predictions, dim=-1)[0]
+
+        rewards_stage = torch.zeros_like(predictions)
+        rewards_stage[predictions == 0] = 0.
+        rewards_stage[predictions == 1] = 1.
+        rewards_stage[predictions == 2] = 1.
+
+        full_reward = base_reward + rewards_stage
+
+        return full_reward
+
 
 @hydra.main(
     version_base=None,
@@ -465,6 +591,7 @@ class TrainDiffusionUnetHybridWorkspace(BaseWorkspace):
 def main(cfg):
     workspace = TrainDiffusionUnetHybridWorkspace(cfg)
     workspace.run()
+
 
 if __name__ == "__main__":
     main()

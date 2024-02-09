@@ -1,8 +1,9 @@
 from __future__ import annotations
 
-from typing import Dict
+from typing import Dict, Tuple
 import math
 
+import hydra
 import numpy as np
 import torch
 import torch.nn as nn
@@ -11,7 +12,7 @@ from einops import rearrange, reduce
 from diffusers.schedulers.scheduling_ddpm import DDPMScheduler
 
 from diffusion_policy.model.common.normalizer import LinearNormalizer
-from diffusion_policy.model.diffusion.conditional_unet1d_critic import ConditionalUnet1DCritic
+from diffusion_policy.model.diffusion.conditional_unet1d_critic import DoubleCritic
 from diffusion_policy.policy.base_image_policy import BaseImagePolicy
 from diffusion_policy.model.diffusion.conditional_unet1d import ConditionalUnet1D
 from diffusion_policy.model.diffusion.mask_generator import LowdimMaskGenerator
@@ -154,33 +155,13 @@ class DiffusionUnetHybridImagePolicy(BaseImagePolicy):
             cond_predict_scale=cond_predict_scale
         )
 
-        # self.critic_model_1 = ConditionalUnet1DCritic(
-        #     input_dim=action_dim,
-        #     local_cond_dim=None,
-        #     global_cond_dim=global_cond_dim,
-        #     diffusion_step_embed_dim=diffusion_step_embed_dim,
-        #     down_dims=down_dims,
-        #     kernel_size=kernel_size,
-        #     n_groups=n_groups,
-        #     cond_predict_scale=cond_predict_scale
-        # )
-        #
-        # self.critic_model_2 = ConditionalUnet1DCritic(
-        #     input_dim=action_dim,
-        #     local_cond_dim=None,
-        #     global_cond_dim=global_cond_dim,
-        #     diffusion_step_embed_dim=diffusion_step_embed_dim,
-        #     down_dims=down_dims,
-        #     kernel_size=kernel_size,
-        #     n_groups=n_groups,
-        #     cond_predict_scale=cond_predict_scale
-        # )
         self.gamma = gamma
 
         self.obs_encoder = obs_encoder
         self.eta_coeff_critic = eta_coeff_critic
         self.model = model
         self.noise_scheduler = noise_scheduler
+
         self.mask_generator = LowdimMaskGenerator(
             action_dim=action_dim,
             obs_dim=0 if obs_as_global_cond else obs_feature_dim,
@@ -365,22 +346,22 @@ class DiffusionUnetHybridImagePolicy(BaseImagePolicy):
     def set_normalizer(self, normalizer: LinearNormalizer):
         self.normalizer.load_state_dict(normalizer.state_dict())
 
-    def compute_loss(self, batch):
+    def compute_loss(self, batch, sigmoid_lagrange, critic_network: DoubleCritic) -> Tuple[torch.Tensor, Dict[str, torch.Tensor], Dict[str, torch.Tensor]]:
         # normalize input
         assert 'valid_mask' not in batch
         nobs = self.normalizer.normalize(batch['obs'])
-        nactions = self.normalizer['action'].normalize(batch['action'])
-        batch_size = nactions.shape[0]
-        horizon = nactions.shape[1]
+        nactions_dataset = self.normalizer['action'].normalize(batch['action'])
+        batch_size = nactions_dataset.shape[0]
+        horizon = nactions_dataset.shape[1]
 
         # handle different ways of passing observation
         local_cond = None
         global_cond = None
-        trajectory = nactions
+        trajectory = nactions_dataset
         cond_data = trajectory
         if self.obs_as_global_cond:
             # reshape B, T, ... to B*T
-            this_nobs = dict_apply(nobs, 
+            this_nobs = dict_apply(nobs,
                 lambda x: x[:,:self.n_obs_steps,...].reshape(-1,*x.shape[2:]))
             nobs_features = self.obs_encoder(this_nobs)
             # reshape back to B, Do
@@ -391,7 +372,7 @@ class DiffusionUnetHybridImagePolicy(BaseImagePolicy):
             nobs_features = self.obs_encoder(this_nobs)
             # reshape back to B, T, Do
             nobs_features = nobs_features.reshape(batch_size, horizon, -1)
-            cond_data = torch.cat([nactions, nobs_features], dim=-1)
+            cond_data = torch.cat([nactions_dataset, nobs_features], dim=-1)
             trajectory = cond_data.detach()
 
         # generate impainting mask
@@ -433,31 +414,37 @@ class DiffusionUnetHybridImagePolicy(BaseImagePolicy):
         loss_diffusion = reduce(loss_diffusion, 'b ... -> b (...)', 'mean')
         loss_diffusion = loss_diffusion.mean()
 
-        sample_actions = self.predict_action(batch['obs'])
-        # print(sample_actions['action_pred'].shape, sample_actions['full_sample'].shape, self.horizon, self.n_action_steps, self.n_obs_steps)
-        scores, rewards_metrics = torch.vmap(DDIMGuidedScheduler.scoring_fn, in_dims=(0, None, None, None))(sample_actions['action_pred'], self.horizon, self.n_action_steps, self.n_obs_steps)
-        loss_score = -1. * scores.mean()
+        actions_policy_dict = self.predict_action(batch['obs'])
+        actions_policy = actions_policy_dict["action_pred"]
+        # Compute critic values
+        nactions_policy = self.normalizer['action'].normalize(actions_policy)
+
+        critic_values = critic_network.get_one_critic(nactions_policy, local_cond=None, global_cond=global_cond,)
+
+        loss_score = -1. * critic_values.mean()
 
         with torch.no_grad():
-            score_dataset_actions, _ = torch.vmap(DDIMGuidedScheduler.scoring_fn, in_dims=(0, None, None, None))(batch['action'], self.horizon, self.n_action_steps, self.n_obs_steps)
-            score_dataset_actions = torch.mean(torch.abs(score_dataset_actions))
-        score_dataset_actions = score_dataset_actions.detach()
+            nactions_dataset = nactions_dataset.detach()
+            critic_values_cst = critic_network.get_one_critic(nactions_dataset, local_cond=None, global_cond=global_cond)
+            critic_values_cst = critic_values_cst.detach()
+            mean_abs_critic_values = torch.mean(torch.abs(critic_values_cst))
 
-        alpha_coeff = self.eta_coeff_critic / score_dataset_actions
+        alpha_coeff = self.eta_coeff_critic / mean_abs_critic_values
         loss_score = alpha_coeff * loss_score
 
-        for key, value in rewards_metrics.items():
-            rewards_metrics[key] = torch.mean(value.detach())
-
-        loss = loss_diffusion + loss_score
+        loss_actor = loss_diffusion + sigmoid_lagrange * loss_score
+        # loss_lagrange = self.compute_loss_lagrange(actions_policy_dict, batch)
         metrics = {
             "diffusion_loss": loss_diffusion,
             "score_loss": loss_score,
             "alpha_coeff": alpha_coeff,
-            "scores": scores.mean(),
-            **rewards_metrics,
+            "critic_values": critic_values.mean(),
         }
-        return loss, metrics
+        other_data = {
+            "sample_actions": actions_policy_dict,
+            "nobs_features": nobs_features,
+        }
+        return loss_actor, metrics, other_data
 
     def calculate_reward(self, obs, action, next_obs):
         start_index = self.n_obs_steps - 1
@@ -482,71 +469,3 @@ class DiffusionUnetHybridImagePolicy(BaseImagePolicy):
         if detach:
             nobs_features = nobs_features.detach()
         return nobs_features
-
-
-    def compute_critic_loss(self, batch, ema_model: DiffusionUnetHybridImagePolicy):
-        # normalize input
-        assert 'valid_mask' not in batch
-        nobs = self.normalizer.normalize(batch['obs'])
-        nactions = self.normalizer['action'].normalize(batch['action'])
-        batch_size = nactions.shape[0]
-
-        # handle different ways of passing observation
-        local_cond = None
-        trajectory = nactions
-        if self.obs_as_global_cond:
-            # reshape B, T, ... to B*T
-            this_nobs = dict_apply(nobs,
-                lambda x: x[:, :self.n_obs_steps, ...].reshape(-1, *x.shape[2:]))
-            nobs_features = self.obs_encoder(this_nobs)
-            # reshape back to B, Do
-            global_cond = nobs_features.reshape(batch_size, -1)
-        else:
-            raise NotImplementedError
-
-        next_obs = batch['next_obs']
-        rewards = self.calculate_reward(batch['obs'], batch['action'], next_obs)
-        gamma = self.gamma
-
-        # generate impainting mask
-        # condition_mask = self.mask_generator(trajectory.shape)  # todo What to do with this?
-
-        critic_values_1 = self.critic_model_1(nactions, local_cond=local_cond, global_cond=global_cond)
-        critic_values_2 = self.critic_model_2(nactions, local_cond=local_cond, global_cond=global_cond)
-
-        actions_target = ema_model.predict_action(next_obs)
-        nactions_target = self.normalizer['action'].normalize(actions_target['action'])
-        critic_target_values_1 = ema_model.critic_model_1(nactions_target, local_cond=local_cond, global_cond=global_cond)
-        critic_target_values_2 = ema_model.critic_model_2(nactions_target, local_cond=local_cond, global_cond=global_cond)
-        concat_critic_target_values = torch.cat([critic_target_values_1, critic_target_values_2], dim=-1)
-        critic_target_values = torch.min(concat_critic_target_values, dim=-1)
-        critic_target_values = rewards + gamma * critic_target_values
-        critic_target_values = critic_target_values.detach()
-
-        loss_critic = F.mse_loss(critic_values_1, critic_target_values, reduction='none') + \
-                        F.mse_loss(critic_values_2, critic_target_values, reduction='none')
-        loss_critic = loss_critic.mean()
-
-        metrics = {
-            "critic_loss": loss_critic,
-        }
-
-        return loss_critic, metrics
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-

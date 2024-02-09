@@ -14,8 +14,6 @@ class ClassifierStageScooping(torch.nn.Module):
         self.linear_2 = torch.nn.Linear(256, 256)
         self.linear_3 = torch.nn.Linear(256, number_of_classes)
 
-
-
     def forward(self, x):
         x = torch.nn.functional.selu(self.linear_1(x))
         x = torch.nn.functional.selu(self.linear_2(x))
@@ -29,12 +27,14 @@ class ClassifierStageScooping(torch.nn.Module):
         loss = torch.nn.functional.cross_entropy(logits, target_logits)
         return loss
 
+    def prediction(self, x, shape_batch):
+        logits = self.forward(x)
+        logits = logits.view(*shape_batch, self.number_of_classes)
+        return torch.argmax(logits, dim=-1)
+
     def accuracy(self, x, target_logits):
         target_logits = target_logits.ravel()
-        predicted_logits = self.forward(x)
-        predicted_logits = predicted_logits.view(*target_logits.shape, self.number_of_classes)
-
-        predicted_logits = torch.argmax(predicted_logits, dim=-1)
+        predicted_logits = self.prediction(x, target_logits.shape)
         return torch.mean(predicted_logits == target_logits, dtype=torch.float32)
 
 
