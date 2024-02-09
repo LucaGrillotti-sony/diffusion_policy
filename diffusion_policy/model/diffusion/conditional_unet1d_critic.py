@@ -284,8 +284,11 @@ class DoubleCritic(nn.Module):
         # generate impainting mask
         # condition_mask = self.mask_generator(trajectory.shape)  # todo What to do with this?
 
-        critic_values_1 = self.critic_model_1(nactions, local_cond=local_cond, global_cond=global_cond)
-        critic_values_2 = self.critic_model_2(nactions, local_cond=local_cond, global_cond=global_cond)
+        self.extract_executed_actions(nactions)
+
+        nactions_executed = self.extract_executed_actions(nactions)
+        critic_values_1 = self.critic_model_1(nactions_executed, local_cond=local_cond, global_cond=global_cond)
+        critic_values_2 = self.critic_model_2(nactions_executed, local_cond=local_cond, global_cond=global_cond)
 
         actions_target = policy.predict_action(next_obs)
         nactions_target = self.normalizer['action'].normalize(actions_target['action_pred'])

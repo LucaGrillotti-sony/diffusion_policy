@@ -418,14 +418,15 @@ class DiffusionUnetHybridImagePolicy(BaseImagePolicy):
         actions_policy = actions_policy_dict["action_pred"]
         # Compute critic values
         nactions_policy = self.normalizer['action'].normalize(actions_policy)
+
         critic_values = critic_network.get_one_critic(nactions_policy, local_cond=None, global_cond=global_cond,)
 
         loss_score = -1. * critic_values.mean()
 
         with torch.no_grad():
-            nactions_dataset.detach()
+            nactions_dataset = nactions_dataset.detach()
             critic_values_cst = critic_network.get_one_critic(nactions_dataset, local_cond=None, global_cond=global_cond)
-            critic_values_cst.detach()
+            critic_values_cst = critic_values_cst.detach()
             mean_abs_critic_values = torch.mean(torch.abs(critic_values_cst))
 
         alpha_coeff = self.eta_coeff_critic / mean_abs_critic_values
@@ -440,7 +441,7 @@ class DiffusionUnetHybridImagePolicy(BaseImagePolicy):
             "critic_values": critic_values.mean(),
         }
         other_data = {
-            "actions_policy_dict": actions_policy_dict,
+            "sample_actions": actions_policy_dict,
             "nobs_features": nobs_features,
         }
         return loss_actor, metrics, other_data

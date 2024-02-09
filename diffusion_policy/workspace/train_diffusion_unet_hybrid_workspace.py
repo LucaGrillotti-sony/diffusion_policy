@@ -232,7 +232,7 @@ class TrainDiffusionUnetHybridWorkspace(BaseWorkspace):
                         # Update classifier
                         labels = batch['label']
                         shape_labels = labels.shape
-                        nobs_features = _other_data_model['nobs_features'].detach()
+                        nobs_features = _other_data_model['nobs_features'].clone().detach()
                         nobs_features = nobs_features.view(*shape_labels, -1)
                         loss_classifier = self.classifier.compute_loss(nobs_features, labels)
                         loss_classifier.backward()
@@ -240,7 +240,8 @@ class TrainDiffusionUnetHybridWorkspace(BaseWorkspace):
                         self.classifier_optimizer.zero_grad()
 
                         # Update critic
-                        rewards = self.reward_function(obs=batch['obs'], action=batch['action'])
+                        # print(batch['action'].shape, nobs_features_flat.shape)
+                        rewards = self.reward_function(nobs_features=nobs_features, actions=batch['action'])
                         loss_critic, metrics_critic = self.critic.compute_critic_loss(batch,
                                                                                       nobs_features=_other_data_model['nobs_features'],
                                                                                       critic_target=self.critic_target,
@@ -310,10 +311,10 @@ class TrainDiffusionUnetHybridWorkspace(BaseWorkspace):
                                 loss_actor, _metrics, _other_data_model = self.model.compute_loss(batch, sigmoid_lagrange=self.get_sigmoid_lagrange(detach=True))
                                 labels = batch['label']
                                 shape_labels = labels.shape
-                                nobs_features = _other_data_model['nobs_features'].detach()
-                                nobs_features = nobs_features.view(*shape_labels, -1)
-                                val_loss_classifier = self.classifier.compute_loss(nobs_features, labels)
-                                accuracy_classifier = self.classifier.accuracy(nobs_features, labels)
+                                nobs_features_flat = _other_data_model['nobs_features'].detach()
+                                nobs_features_flat = nobs_features_flat.view(*shape_labels, -1)
+                                val_loss_classifier = self.classifier.compute_loss(nobs_features_flat, labels)
+                                accuracy_classifier = self.classifier.accuracy(nobs_features_flat, labels)
 
                                 val_losses.append(loss_actor)
                                 list_metrics.append({**_metrics, "val_loss_classifier": val_loss_classifier.item(), "val_accuracy_classifier": accuracy_classifier.item()})
@@ -561,17 +562,17 @@ class TrainDiffusionUnetHybridWorkspace(BaseWorkspace):
         if postprocess_clip:
             self.postprocess_clip_lagrange()
 
-    def reward_function(self, obs, action,):
+    def reward_function(self, nobs_features, actions, ):
         assert self.classifier is not None, "Classifier not set"
 
         # calculate as done in the rest of the code using scoring_fn
 
-        base_reward = torch.vmap(DDIMGuidedScheduler.scoring_fn, in_dims=(0, None, None, None))(action, n_horizon=self.cfg.policy.horizon, n_actions=self.cfg.policy.n_action_steps, n_obs=self.cfg.policy.n_obs_steps)
+        base_reward, _ = torch.vmap(DDIMGuidedScheduler.scoring_fn, in_dims=(0, None, None, None))(actions, self.cfg.policy.horizon, self.cfg.policy.n_action_steps, self.cfg.policy.n_obs_steps)
         base_reward = base_reward.ravel()
 
         self.classifier : ClassifierStageScooping
-        predictions = self.classifier.prediction(obs, shape_batch=base_reward.shape[:-1])
-        predictions = predictions.ravel()
+        predictions = self.classifier.prediction(nobs_features, shape_batch=nobs_features.shape[:-1])
+        predictions = torch.max(predictions, dim=-1)[0]
 
         rewards_stage = torch.zeros_like(predictions)
         rewards_stage[predictions == 0] = 0.
