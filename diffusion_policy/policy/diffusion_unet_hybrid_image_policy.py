@@ -346,7 +346,7 @@ class DiffusionUnetHybridImagePolicy(BaseImagePolicy):
     def set_normalizer(self, normalizer: LinearNormalizer):
         self.normalizer.load_state_dict(normalizer.state_dict())
 
-    def compute_loss(self, batch, sigmoid_lagrange, obs_encodings, critic_network: DoubleCritic) -> Tuple[torch.Tensor, Dict[str, torch.Tensor], Dict[str, torch.Tensor]]:
+    def compute_loss(self, batch, sigmoid_lagrange, critic_network: DoubleCritic) -> Tuple[torch.Tensor, Dict[str, torch.Tensor], Dict[str, torch.Tensor]]:
         # normalize input
         assert 'valid_mask' not in batch
         nobs = self.normalizer.normalize(batch['obs'])
@@ -418,8 +418,6 @@ class DiffusionUnetHybridImagePolicy(BaseImagePolicy):
         actions_policy = actions_policy_dict["action_pred"]
         # Compute critic values
         nactions_policy = self.normalizer['action'].normalize(actions_policy)
-        obs_encodings_detached = obs_encodings.detach()
-        global_cond = critic_network.get_global_cond(batch, obs_encodings_detached).detach()
         critic_values = critic_network.get_one_critic(nactions_policy, local_cond=None, global_cond=global_cond,)
 
         loss_score = -1. * critic_values.mean()

@@ -213,7 +213,7 @@ class TrainDiffusionUnetHybridWorkspace(BaseWorkspace):
 
                         # compute loss
                         sigmoid_lagrange = self.get_sigmoid_lagrange(detach=True).to(cfg.training.device)
-                        raw_loss_actor, _metrics_training, _other_data_model = self.model.compute_loss(batch, sigmoid_lagrange, obs_encodings=..., critic_network=self.critic)
+                        raw_loss_actor, _metrics_training, _other_data_model = self.model.compute_loss(batch, sigmoid_lagrange, critic_network=self.critic)
                         # raw_critic_loss, _metrics_critic_training = self.model.compute_critic_loss(batch, ema_model=self.ema_model)
 
                         # loss = (raw_loss + raw_critic_loss) / cfg.training.gradient_accumulate_every
