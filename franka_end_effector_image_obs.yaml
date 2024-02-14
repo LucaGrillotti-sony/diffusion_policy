@@ -1,3 +1,7 @@
+hydra:
+  run:
+    dir: 'data/outputs/${now:%Y.%m.%d}/${now:%H.%M.%S}_${name}_${task_name}'
+
 _target_: diffusion_policy.workspace.train_diffusion_unet_hybrid_workspace.TrainDiffusionUnetHybridWorkspace
 action_dim: 7
 checkpoint:
@@ -29,7 +33,7 @@ keypoint_visible_rate: 1.0
 logging:
   group: null
   id: null
-  mode: online
+  mode: disabled
   name: 2023.02.25-03.06.09_train_diffusion_unet_image_franka
   project: diffusion_policy_debug
   resume: true

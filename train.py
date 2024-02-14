@@ -19,8 +19,8 @@ OmegaConf.register_new_resolver("eval", eval, replace=True)
 
 @hydra.main(
     version_base=None,
-    config_path=str(pathlib.Path(__file__).parent.joinpath(
-        'diffusion_policy','config'))
+    config_name='franka_end_effector_image_obs.yaml',
+    config_path='.',
 )
 def main(cfg: OmegaConf):
     # resolve immediately so all the ${now:} resolvers
@@ -32,4 +32,5 @@ def main(cfg: OmegaConf):
     workspace.run()
 
 if __name__ == "__main__":
+    sys.argv = [sys.argv[0]]
     main()
