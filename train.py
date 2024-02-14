@@ -3,7 +3,8 @@ Usage:
 Training:
 python train.py --config-name=train_diffusion_lowdim_workspace
 """
-
+import logging
+import os
 import sys
 
 from hydra import initialize, compose
@@ -19,6 +20,8 @@ from diffusion_policy.workspace.base_workspace import BaseWorkspace
 
 # allows arbitrary python code execution in configs using the ${eval:''} resolver
 OmegaConf.register_new_resolver("eval", eval, replace=True)
+
+logger = logging.getLogger(__name__)
 
 @hydra.main(
     version_base=None,
@@ -40,10 +43,10 @@ def list_files(startpath):
     for root, dirs, files in os.walk(startpath):
         level = root.replace(startpath, '').count(os.sep)
         indent = ' ' * 4 * (level)
-        print('{}{}/'.format(indent, os.path.basename(root)))
+        logger.info('{}{}/'.format(indent, os.path.basename(root)))
         subindent = ' ' * 4 * (level + 1)
         for f in files:
-            print('{}{}'.format(subindent, f))
+            logger.info('{}{}'.format(subindent, f))
 
 if __name__ == "__main__":
     sys.argv = [sys.argv[0]]
