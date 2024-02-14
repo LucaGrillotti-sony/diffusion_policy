@@ -5,6 +5,9 @@ python train.py --config-name=train_diffusion_lowdim_workspace
 """
 
 import sys
+
+from hydra import initialize, compose
+
 # use line-buffering for both stdout and stderr
 sys.stdout = open(sys.stdout.fileno(), mode='w', buffering=1)
 sys.stderr = open(sys.stderr.fileno(), mode='w', buffering=1)
@@ -19,8 +22,8 @@ OmegaConf.register_new_resolver("eval", eval, replace=True)
 
 @hydra.main(
     version_base=None,
-    config_name='franka_end_effector_image_obs.yaml',
     config_path='.',
+    config_name='franka_end_effector_image_obs',
 )
 def main(cfg: OmegaConf):
     # resolve immediately so all the ${now:} resolvers
