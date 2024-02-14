@@ -308,7 +308,7 @@ class TrainDiffusionUnetHybridWorkspace(BaseWorkspace):
                                 leave=False, mininterval=cfg.training.tqdm_interval_sec) as tepoch:
                             for batch_idx, batch in enumerate(tepoch):
                                 batch = dict_apply(batch, lambda x: x.to(device, non_blocking=True))
-                                loss_actor, _metrics, _other_data_model = self.model.compute_loss(batch, sigmoid_lagrange=self.get_sigmoid_lagrange(detach=True))
+                                loss_actor, _metrics, _other_data_model = self.model.compute_loss(batch, sigmoid_lagrange=self.get_sigmoid_lagrange(detach=True), critic_network=self.critic)
                                 labels = batch['label']
                                 shape_labels = labels.shape
                                 nobs_features_flat = _other_data_model['nobs_features'].detach()
