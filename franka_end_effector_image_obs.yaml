@@ -138,7 +138,7 @@ policy:
     set_alpha_to_one: True
     steps_offset: 0
     prediction_type: epsilon # or sample
-  num_inference_steps: 100
+  num_inference_steps: 10
   obs_as_global_cond: true
   obs_encoder_group_norm: true
 critic:
