@@ -31,7 +31,7 @@ logger = logging.getLogger(__name__)
 def main(cfg: OmegaConf):
     # resolve immediately so all the ${now:} resolvers
     # will use the same time.
-    list_files(".")
+    # list_files(".")
 
     OmegaConf.resolve(cfg)
 
