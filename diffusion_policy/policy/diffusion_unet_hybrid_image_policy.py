@@ -22,7 +22,7 @@ from robomimic.algo.algo import PolicyAlgo
 import robomimic.utils.obs_utils as ObsUtils
 import robomimic.models.base_nets as rmbn
 import diffusion_policy.model.vision.crop_randomizer as dmvc
-from diffusion_policy.common.pytorch_util import dict_apply, replace_submodules
+from diffusion_policy.common.pytorch_util import dict_apply, replace_submodules, custom_tree_map
 from diffusion_policy.policy.diffusion_guided_ddim import DDIMGuidedScheduler
 
 
@@ -341,6 +341,46 @@ class DiffusionUnetHybridImagePolicy(BaseImagePolicy):
             'full_sample': sample,
         }
         return result
+
+    def predict_action_from_several_samples(self, obs_dict, critic_network: DoubleCritic):
+        nobs = self.normalizer.normalize(obs_dict)
+        value = next(iter(nobs.values()))
+        B, To = value.shape[:2]
+        T = self.horizon
+        Da = self.action_dim
+        Do = self.obs_feature_dim
+        To = self.n_obs_steps
+
+        # build input
+        device = self.device
+        dtype = self.dtype
+
+        # handle different ways of passing observation
+        local_cond = None
+        global_cond = None
+
+        if self.obs_as_global_cond:
+            # condition through global feature
+            this_nobs = dict_apply(nobs, lambda x: x[:,:To,...].reshape(-1, *x.shape[2:]))
+            nobs_features = self.obs_encoder(this_nobs)
+            # reshape back to B, Do
+            global_cond = nobs_features.reshape(B, -1)
+            # empty data for action
+            cond_data = torch.zeros(size=(B, T, Da), device=device, dtype=dtype)
+            cond_mask = torch.zeros_like(cond_data, dtype=torch.bool)
+        number_samples = 10
+        repeated_obs_dict = custom_tree_map(lambda x: x.repeat(number_samples, 1), obs_dict)
+        result_dict = self.predict_action(repeated_obs_dict)
+        action_full_horizon = result_dict['action_pred']
+        naction_full_horizon = self.normalizer['action'].normalize(action_full_horizon)
+        values_critic = critic_network.get_one_critic(naction_full_horizon, local_cond=None, global_cond=global_cond,)
+        values_critic = values_critic.ravel()
+
+        # Selected best action at the moment
+        argmax_index = torch.argmax(values_critic)[0]
+
+        action_selected = custom_tree_map(lambda x: x[argmax_index], result_dict)
+        return action_selected
 
     # ========= training  ============
     def set_normalizer(self, normalizer: LinearNormalizer):

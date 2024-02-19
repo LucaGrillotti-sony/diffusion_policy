@@ -272,7 +272,7 @@ class DiffusionController(NodeParameterMixin,
         camera_1_topic='/d405rs01/color/image_rect_raw/compressed',
     )
 
-    def __init__(self, policy, n_obs_steps, n_action_steps, path_bag_robot_description, *args, node_name='robot_calibrator', **kwargs):
+    def __init__(self, policy, critic, n_obs_steps, n_action_steps, path_bag_robot_description, *args, node_name='robot_calibrator', **kwargs):
         super().__init__(*args, node_name=node_name, node_parameters=self.NODE_PARAMETERS, **kwargs)
         # jtc commandor
         self.current_command = None
@@ -296,6 +296,9 @@ class DiffusionController(NodeParameterMixin,
         self.policy = policy
         self.policy.eval().cuda()
         self.policy.reset()
+
+        self.critic = critic
+        self.critic.eval().cuda()
 
         # self.policy.num_inference_steps = 64
 
@@ -377,9 +380,9 @@ class DiffusionController(NodeParameterMixin,
                 # device transfer
                 obs_dict = dict_apply(stacked_obs,
                                       lambda x: torch.from_numpy(x).cuda())
-                print(dict_apply(stacked_obs,  lambda x:x.shape))
+                print(dict_apply(stacked_obs,  lambda x: x.shape))
 
-                action_dict = self.policy.predict_action(obs_dict)
+                action_dict = self.policy.predict_action_from_several_samples(obs_dict, self.critic)
                 np_action_dict = dict_apply(action_dict,
                                             lambda x: x.detach().to('cpu').numpy())
 
@@ -476,6 +479,7 @@ def main(args=None):
     try:
         nodes = [
             DiffusionController(policy=workspace.model,
+                                critic=workspace.critic,
                                 n_obs_steps=n_obs_steps,
                                 n_action_steps=n_action_steps,
                                 path_bag_robot_description=path_bag_robot_description,
