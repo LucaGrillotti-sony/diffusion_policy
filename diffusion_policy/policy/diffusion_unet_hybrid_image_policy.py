@@ -368,8 +368,8 @@ class DiffusionUnetHybridImagePolicy(BaseImagePolicy):
             # empty data for action
             cond_data = torch.zeros(size=(B, T, Da), device=device, dtype=dtype)
             cond_mask = torch.zeros_like(cond_data, dtype=torch.bool)
-        number_samples = 10
-        repeated_obs_dict = custom_tree_map(lambda x: x.repeat(number_samples, 1), obs_dict)
+        number_samples = 50
+        repeated_obs_dict = custom_tree_map(lambda x: torch.repeat_interleave(x, number_samples, dim=0), obs_dict)
         result_dict = self.predict_action(repeated_obs_dict)
         action_full_horizon = result_dict['action_pred']
         naction_full_horizon = self.normalizer['action'].normalize(action_full_horizon)
@@ -377,7 +377,7 @@ class DiffusionUnetHybridImagePolicy(BaseImagePolicy):
         values_critic = values_critic.ravel()
 
         # Selected best action at the moment
-        argmax_index = torch.argmax(values_critic)[0]
+        argmax_index = torch.argmax(values_critic).item()
 
         action_selected = custom_tree_map(lambda x: x[argmax_index], result_dict)
         return action_selected

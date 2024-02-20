@@ -10,6 +10,7 @@ from diffusers import DDPMScheduler
 from einops.layers.torch import Rearrange
 
 from diffusion_policy.common.pytorch_util import dict_apply
+from diffusion_policy.model.common.normalizer import LinearNormalizer
 from diffusion_policy.model.diffusion.conditional_unet1d import ConditionalResidualBlock1D
 from diffusion_policy.model.diffusion.conv1d_components import (
     Downsample1d, Upsample1d, Conv1dBlock)
@@ -211,7 +212,8 @@ class DoubleCritic(nn.Module):
             cond_predict_scale=cond_predict_scale
         )
 
-        self.normalizer = None
+        self.normalizer = LinearNormalizer()
+        self.is_normalizer_set = False
         self.gamma = gamma
         self.obs_as_global_cond = obs_as_global_cond
         self.n_obs_steps = n_obs_steps
@@ -237,9 +239,10 @@ class DoubleCritic(nn.Module):
         return self.critic_model_1(x, local_cond, global_cond, **kwargs)
 
     def set_normalizer(self, normalizer):
-        if self.normalizer is not None:
+        if self.is_normalizer_set:
             raise ValueError("Normalizer already set")
         self.normalizer = normalizer
+        self.is_normalizer_set = True
 
     def extract_executed_actions(self, action_full_horizon):
         # get action

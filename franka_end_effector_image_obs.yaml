@@ -221,7 +221,7 @@ task:
         shape:
           - 1
         type: low_dim
-    dataset_path: data/smaller_dataset
+    dataset_path: /home/ros/humble/src/diffusion_policy/data/smaller_dataset
     dt: 0.1
     horizon: 16
     n_obs_steps: 2
