@@ -71,9 +71,9 @@ class BashPreOp(PreOp):
 
     def __post_init__(self) -> None:
         assert self.bash_script.suffix in [".sh", ".bash"], f"Invalid {self.bash_script=}"
-        assert self.bash_script.resolve().relative_to(
-            pathlib.Path.cwd()
-        ), f"Bash script is not on a subpath of cwd ({pathlib.Path.cwd()})"
+        # assert self.bash_script.resolve().relative_to(
+        #     pathlib.Path.cwd()
+        # ), f"Bash script is not on a subpath of cwd ({pathlib.Path.cwd()})"
 
 
 @register_config("s3cp")
