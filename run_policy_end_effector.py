@@ -89,7 +89,8 @@ class EnvControlWrapper:
         # init_positions = np.load(osp.join(osp.dirname(__file__), 'obs_with_time.npy'))[:, 1:]
         # self.init_pos = init_positions[len(init_positions) // 2,:7]
         # self.init_pos = init_positions[len(init_positions) // 3, :7]
-        self.init_pos = np.asarray([-0.38435703, -0.82782065, 0.25952787, -2.3897604, 0.18524243, 1.5886066, 0.59382302])
+        # self.init_pos = np.asarray([-0.38435703, -0.82782065, 0.25952787, -2.3897604, 0.18524243, 1.5886066, 0.59382302])
+        self.init_pos = np.asarray([-0.08435703, -0.62782065, 0.25952787, -2.3897604, 0.18524243, 1.5886066, 0.59382302])
         self._jstate = None
 
         self.n_obs_steps = n_obs_steps
@@ -381,7 +382,7 @@ class DiffusionController(NodeParameterMixin,
                 obs_dict = dict_apply(stacked_obs,
                                       lambda x: torch.from_numpy(x).cuda())
                 print(dict_apply(stacked_obs,  lambda x: x.shape))
-
+                # action_dict = self.policy.predict_action(obs_dict)
                 action_dict = self.policy.predict_action_from_several_samples(obs_dict, self.critic)
                 np_action_dict = dict_apply(action_dict,
                                             lambda x: x.detach().to('cpu').numpy())
@@ -389,8 +390,10 @@ class DiffusionController(NodeParameterMixin,
                 action = np_action_dict['action']
                 metrics = np_action_dict['metrics']
                 wandb.log(metrics)
-                array_dq = action.reshape(*action.shape[1:])
-
+                if action.shape[0] == 1:
+                    array_dq = action.reshape(*action.shape[1:])
+                else:
+                    array_dq= action
                 self.env.push_actions([_dq for _dq in array_dq])
                 # self.env.push_actions([array_dq[0]])
 
@@ -441,7 +444,8 @@ class DiffusionController(NodeParameterMixin,
 def main(args=None):
     # ckpt_path = "/home/ros/humble/src/diffusion_policy/data/outputs/2024.01.16/19.33.40_train_diffusion_unet_image_franka_kitchen_lowdim/checkpoints/latest.ckpt"
     # ckpt_path = "/home/ros/humble/src/diffusion_policy/data/outputs/2024.01.26/12.15.56_train_diffusion_unet_image_franka_kitchen_lowdim/checkpoints/latest.ckpt"  # trained to also optimize actions
-    ckpt_path = "/home/ros/humble/src/diffusion_policy/data/outputs/2024.01.31/19.22.29_train_diffusion_unet_image_franka_kitchen_lowdim/checkpoints/latest.ckpt"  # trained to also optimize actions
+    # ckpt_path = "/home/ros/humble/src/diffusion_policy/data/outputs/2024.01.31/19.22.29_train_diffusion_unet_image_franka_kitchen_lowdim/checkpoints/latest.ckpt"  # trained to also optimize actions
+    ckpt_path = "/home/ros/humble/src/diffusion_policy/data/outputs/2024.02.16/17.43.43_train_diffusion_unet_image_franka_kitchen_lowdim/checkpoints/latest.ckpt"  # trained to also optimize actions
     n_obs_steps = 2
     n_action_steps = 8
     path_bag_robot_description = "/home/ros/humble/src/read-db/rosbag2_2024_01_16-19_05_24/"
