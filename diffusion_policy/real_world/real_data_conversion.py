@@ -214,10 +214,12 @@ def create_zarr_action_dataset(dataset_path: str,):
         _file_path = _subfolder / "target_end_effector_pos_interpolated.npy"
         _file_path_eef = _subfolder / "current_eef_pos_interpolated.npy"
         _file_path_annotations = _subfolder / "annotations_video_interpolated.npy"
+        _file_path_mass = _subfolder / "mass.txt"
 
         _file_path = _file_path.absolute()
         _file_path_eef = _file_path_eef.absolute()
         _file_path_annotations = _file_path_annotations.absolute()
+        _file_path_mass = _file_path_mass.absolute()
 
         if not _file_path.exists():
             print(f"{_file_path} does not exist, skipping...")
@@ -228,14 +230,20 @@ def create_zarr_action_dataset(dataset_path: str,):
         if not _file_path_annotations.exists():
             print(f"{_file_path_annotations} does not exist, skipping...")
             continue
+        if not _file_path_mass.exists():
+            print(f"{_file_path_mass} does not exist, skipping...")
+            continue
         array_actions = np.load(_file_path)
         array_eef = np.load(_file_path_eef)
         array_annotations = np.load(_file_path_annotations)
+        mass_scooped = np.loadtxt(_file_path_mass).item()
+        array_masses = np.full_like(array_annotations, fill_value=mass_scooped)
 
         data_dict = {
             'action': array_actions,
             'eef': array_eef,
             'label': array_annotations,
+            'mass': array_masses,
         }
 
         replay_buffer.add_episode(
