@@ -59,6 +59,8 @@ class RealFrankaImageDataset(BaseImageDataset):
             val_ratio=0.0,
             max_train_episodes=None,
             delta_action=False,
+            mass_encoding_size=32,
+            proba_diffusion_remove_mass_label=0.1,
         ):
 
         assert os.path.isdir(dataset_path)
@@ -172,8 +174,10 @@ class RealFrankaImageDataset(BaseImageDataset):
         self.pad_before = pad_before
         self.pad_after = pad_after
 
-        self.rff_encoder = RandomFourierFeatures(encoding_size=32, vector_size=2)  # todo: in config
-        self.proba_remove_mass_label = 0.1  # todo: in config
+        self.mass_encoding_size = mass_encoding_size
+
+        self.rff_encoder = RandomFourierFeatures(encoding_size=self.mass_encoding_size, vector_size=2)
+        self.proba_diffusion_remove_mass_label = proba_diffusion_remove_mass_label
 
     def get_validation_dataset(self):
         val_set = copy.copy(self)
@@ -189,7 +193,7 @@ class RealFrankaImageDataset(BaseImageDataset):
 
     def encode_mass(self, mass):
         mass_len = mass.shape[0]
-        if random.random() < self.proba_remove_mass_label:
+        if random.random() < self.proba_diffusion_remove_mass_label:
             mass_v = np.asarray([[0., 1.] for _ in range(mass_len)])
         else:
             mass_v = np.hstack((mass.reshape(mass_len, 1), np.zeros(shape=(mass_len, 1))))

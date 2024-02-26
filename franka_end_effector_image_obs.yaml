@@ -246,6 +246,8 @@ task:
     val_ratio: 0.02
     delta_action: false
     use_cache: true
+    mass_encoding_size: 32
+    proba_diffusion_remove_mass_label: 0.1
   env_runner:
     _target_: diffusion_policy.env_runner.real_robot_runner.DummyImageRobot
 task_name: kitchen_lowdim
