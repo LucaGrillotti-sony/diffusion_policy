@@ -2,7 +2,6 @@ import math
 
 from diffusion_policy.model.diffusion.conditional_unet1d_critic import DoubleCritic
 from diffusion_policy.networks.classifier import ClassifierStageScooping
-from diffusion_policy.networks.trainer_classifier import TrainerClassifier
 from diffusion_policy.policy.diffusion_guided_ddim import DDIMGuidedScheduler
 
 if __name__ == "__main__":
@@ -88,7 +87,7 @@ class TrainDiffusionUnetHybridWorkspace(BaseWorkspace):
         self.epoch = 0
 
         NUM_CLASSES = 3
-        IN_FEATURES_CLASSIFIER = 135
+        IN_FEATURES_CLASSIFIER = 167
 
         self.classifier = ClassifierStageScooping(in_features=IN_FEATURES_CLASSIFIER, number_of_classes=NUM_CLASSES)
         self.classifier = self.classifier.to(cfg.training.device)

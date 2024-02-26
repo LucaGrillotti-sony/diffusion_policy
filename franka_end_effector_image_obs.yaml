@@ -110,6 +110,10 @@ policy:
           - 240
           - 320
         type: rgb
+      mass:
+        shape:
+          - 32  # after RFF
+        type: low_dim
 #      camera_2:
 #        shape:
 #          - 3
@@ -171,6 +175,10 @@ critic:
           - 240
           - 320
         type: rgb
+      mass:
+        shape:
+          - 32 # after RFF
+        type: low_dim
       eef:
         shape:
           - 7
@@ -201,6 +209,10 @@ task:
             - 240
             - 320
           type: rgb
+        mass:
+          shape:
+            - 32 # after RFF
+          type: low_dim
 #        camera_2:
 #          shape:
 #            - 3
@@ -221,7 +233,8 @@ task:
         shape:
           - 1
         type: low_dim
-    dataset_path: /home/ros/humble/src/diffusion_policy/data/smaller_dataset
+#    dataset_path: /home/ros/humble/src/diffusion_policy/data/smaller_dataset
+    dataset_path: /home/lucagrillotti/ros/humble/src/diffusion_policy/data/smaller_dataset
     dt: 0.1
     horizon: 16
     n_obs_steps: 2
@@ -233,6 +246,8 @@ task:
     val_ratio: 0.02
     delta_action: false
     use_cache: true
+    mass_encoding_size: 32
+    proba_diffusion_remove_mass_label: 0.1
   env_runner:
     _target_: diffusion_policy.env_runner.real_robot_runner.DummyImageRobot
 task_name: kitchen_lowdim
@@ -254,13 +269,13 @@ training:
   use_ema: true
   val_every: 1
 val_dataloader:
-  batch_size: 64
+  batch_size: 32
   num_workers: 8
   persistent_workers: false
   pin_memory: true
   shuffle: false
 dataloader:
-  batch_size: 64
+  batch_size: 32
   num_workers: 8
   persistent_workers: false
   pin_memory: true
