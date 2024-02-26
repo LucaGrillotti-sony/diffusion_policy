@@ -27,5 +27,6 @@ def main(cfg: OmegaConf):
 
     workspace.run()
 
+
 if __name__ == '__main__':
     main()

@@ -1,3 +1,4 @@
+import random
 from typing import Dict, List
 import torch
 import numpy as np
@@ -24,6 +25,23 @@ from diffusion_policy.common.normalize_util import (
     get_identity_normalizer_from_stat,
     array_to_stats
 )
+
+
+class RandomFourierFeatures:
+    def __init__(self, encoding_size: int, vector_size: int):
+        assert encoding_size % 2 == 0
+        self.number_features = encoding_size // 2
+
+        rng = np.random.default_rng(12345)
+
+        self.B = rng.normal(size=(vector_size, self.number_features))
+
+    def encode_vector(self, v):
+        matmul = np.matmul(v, self.B)
+        cos_data = np.cos(2 * np.pi * matmul)
+        sin_data = np.sin(2 * np.pi * matmul)
+        return np.concatenate([cos_data, sin_data], axis=-1)
+
 
 class RealFrankaImageDataset(BaseImageDataset):
     def __init__(self,
@@ -154,6 +172,9 @@ class RealFrankaImageDataset(BaseImageDataset):
         self.pad_before = pad_before
         self.pad_after = pad_after
 
+        self.rff_encoder = RandomFourierFeatures(encoding_size=32, vector_size=2)  # todo: in config
+        self.proba_remove_mass_label = 0.1  # todo: in config
+
     def get_validation_dataset(self):
         val_set = copy.copy(self)
         val_set.sampler = SequenceSampler(
@@ -166,6 +187,17 @@ class RealFrankaImageDataset(BaseImageDataset):
         val_set.val_mask = ~self.val_mask
         return val_set
 
+    def encode_mass(self, mass):
+        mass_len = mass.shape[0]
+        if random.random() < self.proba_remove_mass_label:
+            mass_v = np.asarray([[0., 1.] for _ in range(mass_len)])
+        else:
+            mass_v = np.hstack((mass.reshape(mass_len, 1), np.zeros(shape=(mass_len, 1))))
+            # mass_v = np.asarray([mass, 0.] for _ in range(mass_len))
+
+        mass_encoding = self.rff_encoder.encode_vector(mass_v)
+        return mass_encoding
+
     def get_normalizer(self, **kwargs) -> LinearNormalizer:
         normalizer = LinearNormalizer()
 
@@ -175,8 +207,10 @@ class RealFrankaImageDataset(BaseImageDataset):
         
         # obs
         for key in self.lowdim_keys:
-            normalizer[key] = SingleFieldLinearNormalizer.create_fit(
-                self.replay_buffer[key])
+            if key == 'mass':
+                normalizer[key] = SingleFieldLinearNormalizer.create_identity()
+            else:
+                normalizer[key] = SingleFieldLinearNormalizer.create_fit(self.replay_buffer[key])
         
         # image
         for key in self.rgb_keys:
@@ -218,13 +252,14 @@ class RealFrankaImageDataset(BaseImageDataset):
             next_obs_dict[key] = data[key][next_T_slice].astype(np.float32)
             # save ram
             del data[key]
-        
+
         action = data['action'].astype(np.float32)
         labels = data['label'].astype(np.uint8)
         labels = labels[T_slice]
 
-        masses = data['mass'].astype(np.float32)
-        masses = masses[T_slice]
+        if 'mass' in obs_dict:
+            obs_dict['mass'] = self.encode_mass(obs_dict['mass'])
+            next_obs_dict['mass'] = self.encode_mass(next_obs_dict['mass'])
 
         # handle latency by dropping first n_latency_steps action
         # observations are already taken care of by T_slice
@@ -238,7 +273,6 @@ class RealFrankaImageDataset(BaseImageDataset):
             'action': torch.from_numpy(action),
             'next_obs': dict_apply(next_obs_dict, torch.from_numpy),
             'label': torch.from_numpy(labels),
-            'mass': torch.from_numpy(masses),
         }
         return torch_data
 

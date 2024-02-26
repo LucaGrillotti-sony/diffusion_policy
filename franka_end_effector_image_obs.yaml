@@ -110,6 +110,10 @@ policy:
           - 240
           - 320
         type: rgb
+      mass:
+        shape:
+          - 32  # after RFF
+        type: low_dim
 #      camera_2:
 #        shape:
 #          - 3
@@ -171,6 +175,10 @@ critic:
           - 240
           - 320
         type: rgb
+      mass:
+        shape:
+          - 32 # after RFF
+        type: low_dim
       eef:
         shape:
           - 7
@@ -201,6 +209,10 @@ task:
             - 240
             - 320
           type: rgb
+        mass:
+          shape:
+            - 32 # after RFF
+          type: low_dim
 #        camera_2:
 #          shape:
 #            - 3
@@ -218,10 +230,6 @@ task:
             - 7
           type: low_dim
       label:
-        shape:
-          - 1
-        type: low_dim
-      mass:
         shape:
           - 1
         type: low_dim
