@@ -223,6 +223,9 @@ class RealFrankaImageDataset(BaseImageDataset):
         labels = data['label'].astype(np.uint8)
         labels = labels[T_slice]
 
+        masses = data['mass'].astype(np.float32)
+        masses = masses[T_slice]
+
         # handle latency by dropping first n_latency_steps action
         # observations are already taken care of by T_slice
         if self.n_latency_steps > 0:
@@ -235,6 +238,7 @@ class RealFrankaImageDataset(BaseImageDataset):
             'action': torch.from_numpy(action),
             'next_obs': dict_apply(next_obs_dict, torch.from_numpy),
             'label': torch.from_numpy(labels),
+            'mass': torch.from_numpy(masses),
         }
         return torch_data
 
@@ -276,7 +280,7 @@ def _get_replay_buffer(dataset_path, shape_meta, store, dt):
             dataset_path=dataset_path,
             out_store=store,
             out_resolutions=out_resolutions,
-            lowdim_keys=lowdim_keys + ['action'] + ['label'],
+            lowdim_keys=lowdim_keys + ['action'] + ['label', 'mass'],
             image_keys=rgb_keys,
             dt=dt,
         )

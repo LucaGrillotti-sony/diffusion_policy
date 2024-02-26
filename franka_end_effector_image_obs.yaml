@@ -221,7 +221,12 @@ task:
         shape:
           - 1
         type: low_dim
-    dataset_path: /home/ros/humble/src/diffusion_policy/data/smaller_dataset
+      mass:
+        shape:
+          - 1
+        type: low_dim
+#    dataset_path: /home/ros/humble/src/diffusion_policy/data/smaller_dataset
+    dataset_path: /home/lucagrillotti/ros/humble/src/diffusion_policy/data/smaller_dataset
     dt: 0.1
     horizon: 16
     n_obs_steps: 2
@@ -254,13 +259,13 @@ training:
   use_ema: true
   val_every: 1
 val_dataloader:
-  batch_size: 64
+  batch_size: 32
   num_workers: 8
   persistent_workers: false
   pin_memory: true
   shuffle: false
 dataloader:
-  batch_size: 64
+  batch_size: 32
   num_workers: 8
   persistent_workers: false
   pin_memory: true
