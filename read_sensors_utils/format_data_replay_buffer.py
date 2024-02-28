@@ -92,15 +92,20 @@ class ImageWithTimestamp:
 def convert_image(cv_bridge: CvBridge, msg_ros):
     msg_fmt = "passthrough"
     img_np = cv_bridge.compressed_imgmsg_to_cv2(msg_ros, msg_fmt)
+    if img_np is None:
+        return None
     img_np = cv2.resize(img_np, (320, 240), interpolation=cv2.INTER_AREA)
     return img_np
 
 
 def get_list_data_img(cv_bridge: CvBridge, list_images, time_offset):
     list_data = []
-    for image_t in list_images:
+    for index, image_t in enumerate(list_images):
         timestamp, image = image_t
         img_np = convert_image(cv_bridge=cv_bridge, msg_ros=image)
+        if img_np is None:
+            print("skipping ", index)
+            continue
         list_data.append(ImageWithTimestamp(img_np, timestamp=(timestamp / 1e9) - time_offset))
         # print((timestamp / 1e9) - time_offset)
     return list_data
@@ -136,7 +141,7 @@ def make_video(list_images: List[ImageWithTimestamp], name, fps):
 def collect_data_from_messages(sequence_msg, start_time, transform_fn):
     all_commands = []
     all_times_commands = []
-    for command in sequence_msg:
+    for index, command in enumerate(sequence_msg):
         time_cartesian_commands = command[0] / 1e9
         all_commands.append(transform_fn(command[1]))
         all_times_commands.append(time_cartesian_commands)
@@ -154,7 +159,10 @@ def get_robot_description(path_bag_robot_description):
 
 
 def end_effector_calculator(command_1, _kdl):
-    pos_joints = command_1.position[:7]
+    if isinstance(command_1, np.ndarray):
+        pos_joints = command_1[:7]
+    else:
+        pos_joints = command_1.position[:7]
     cur_pos = se3(*_kdl.compute_fk(np.asarray(pos_joints)))
     r = cur_pos.r
     q = quat.as_float_array(cur_pos.q)
@@ -172,9 +180,7 @@ def treat_folder(path_load, path_save, index_episode):
     cv_bridge = CvBridge()
     # print(images_azure_06)
 
-    PATH_BAG_ROBOT_DESCRIPTION = "/home/ros/humble/src/read-db/rosbag2_2024_01_16-19_05_24/" # TODO
-
-    robot_description = get_robot_description(PATH_BAG_ROBOT_DESCRIPTION)
+    robot_description = get_robot_description(path_load)
     kdl = KDLSolver(robot_description)
     kdl.set_kinematic_chain('panda_link0', 'panda_hand')
 
@@ -220,10 +226,16 @@ def treat_folder(path_load, path_save, index_episode):
 
     print("Get End-effector")
     target_end_effector_poses = parser.get_messages("/cartesian_control")
-    joint_states = parser.get_messages("/joint_states")
+    robot_states = parser.get_messages("/franka_robot_state_broadcaster/robot_state")
+    print("robot states", len(robot_states))
 
     all_times_cartesian_commands, all_end_effector_targets = collect_data_from_messages(target_end_effector_poses, start_time, transform_fn=lambda x: np.asarray(x.data))
-    all_times_joint_states, all_end_effector_pos = collect_data_from_messages(joint_states, start_time, transform_fn=functools.partial(end_effector_calculator, _kdl=kdl))  # TODO
+    # all_times_joint_states, all_end_effector_pos = collect_data_from_messages(joint_states, start_time, transform_fn=functools.partial(end_effector_calculator, _kdl=kdl))  # TODO
+    all_times_joint_states, all_end_effector_pos = collect_data_from_messages(
+        robot_states,
+        start_time,
+        transform_fn=lambda robot_state: end_effector_calculator(command_1=np.asarray(robot_state.q), _kdl=kdl),
+    )  # TODO
 
     target_end_effector_pos_interpolated = interpolate(all_times_cartesian_commands, all_end_effector_targets, timestamps_interpolation)
     current_eef_pos_interpolated = interpolate(all_times_joint_states, all_end_effector_pos, timestamps_interpolation)
@@ -266,8 +278,8 @@ def treat_folder(path_load, path_save, index_episode):
 
 
 def main():
-    PATH_TO_LOAD = pathlib.Path("/home/ros/humble/src/read-db/saved_rosbags/").absolute()
-    PATH_SAVE = pathlib.Path("/home/ros/humble/src/diffusion_policy/data/smaller_dataset").absolute()
+    PATH_TO_LOAD = pathlib.Path("/home/ros/humble/src/diffusion_policy/data/bags_replayed/").absolute()
+    PATH_SAVE = pathlib.Path("/home/ros/humble/src/diffusion_policy/data/test_dataset_2").absolute()
     PATH_SAVE.mkdir(exist_ok=True, parents=True)
     rosbag_paths = [file for file in PATH_TO_LOAD.iterdir() if file.name.startswith("rosbag")]
     for index, rosbag_paths in enumerate(sorted(rosbag_paths)):

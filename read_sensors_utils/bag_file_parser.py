@@ -1,10 +1,16 @@
+import copy
 import pathlib
 import sqlite3
 
 import numpy as np
 import matplotlib.pyplot as plt
 
+from std_msgs.msg import String
+
+
 from rosidl_runtime_py.utilities import get_message
+
+get_message("std_msgs/msg/String")
 from rclpy.serialization import deserialize_message
 from rclpy.qos import QoSProfile, QoSDurabilityPolicy
 import PyKDL
@@ -12,6 +18,13 @@ from kdl_solver import KDLSolver
 
 
 class BagFileParser():
+
+    CONVERSION_MODULES = {
+        "String": "std_msgs/msg/String",
+        "FrankaRobotState": "franka_msgs/msg/FrankaRobotState",
+        "CompressedImage": "sensor_msgs/msg/CompressedImage",
+    }
+
     def __init__(self, bag_file):
         self.conn = sqlite3.connect(bag_file)
         self.cursor = self.conn.cursor()
@@ -20,7 +33,16 @@ class BagFileParser():
         topics_data = self.cursor.execute("SELECT id, name, type FROM topics").fetchall()
         self.topic_type = {name_of: type_of for id_of, name_of, type_of in topics_data}
         self.topic_id = {name_of: id_of for id_of, name_of, type_of in topics_data}
-        self.topic_msg_message = {name_of: get_message(type_of) for id_of, name_of, type_of in topics_data}
+
+        for key, value in self.topic_type.items():
+            if value in self.CONVERSION_MODULES:
+                self.topic_type[key] = self.CONVERSION_MODULES[value]
+
+        for topic_value in self.topic_type.values():
+            print(topic_value)
+            get_message(topic_value)
+
+        self.topic_msg_message = {name_of: get_message(self.topic_type[name_of]) for id_of, name_of, type_of in topics_data}
         print("topic id", self.topic_id)
 
     def __del__(self):
