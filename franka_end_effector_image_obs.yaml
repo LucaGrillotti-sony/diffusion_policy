@@ -234,7 +234,7 @@ task:
           - 1
         type: low_dim
 #    dataset_path: /home/ros/humble/src/diffusion_policy/data/smaller_dataset
-    dataset_path: /home/lucagrillotti/ros/humble/src/diffusion_policy/data/smaller_dataset
+    dataset_path: /home/lucagrillotti/ros/humble/src/diffusion_policy/data/fake_puree_experiments/diffusion_policy_dataset/
     dt: 0.1
     horizon: 16
     n_obs_steps: 2
@@ -246,7 +246,8 @@ task:
     val_ratio: 0.02
     delta_action: false
     use_cache: true
-    mass_encoding_size: 32
+    mass_encoding_size: 256
+    period_adjustment_rff: 0.15
     proba_diffusion_remove_mass_label: 0.1
   env_runner:
     _target_: diffusion_policy.env_runner.real_robot_runner.DummyImageRobot
@@ -276,7 +277,7 @@ val_dataloader:
   shuffle: false
 dataloader:
   batch_size: 32
-  num_workers: 8
+  num_workers: 16
   persistent_workers: false
   pin_memory: true
   shuffle: true

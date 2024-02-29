@@ -28,13 +28,13 @@ from diffusion_policy.common.normalize_util import (
 
 
 class RandomFourierFeatures:
-    def __init__(self, encoding_size: int, vector_size: int):
+    def __init__(self, encoding_size: int, vector_size: int, period_adjustment_rff: float):
         assert encoding_size % 2 == 0
         self.number_features = encoding_size // 2
 
         rng = np.random.default_rng(12345)
 
-        self.B = rng.normal(size=(vector_size, self.number_features))
+        self.B = rng.normal(size=(vector_size, self.number_features)) * period_adjustment_rff
 
     def encode_vector(self, v):
         matmul = np.matmul(v, self.B)
@@ -59,8 +59,9 @@ class RealFrankaImageDataset(BaseImageDataset):
             val_ratio=0.0,
             max_train_episodes=None,
             delta_action=False,
-            mass_encoding_size=32,
+            mass_encoding_size=256,
             proba_diffusion_remove_mass_label=0.1,
+            period_adjustment_rff=0.15,
         ):
 
         assert os.path.isdir(dataset_path)
@@ -175,8 +176,9 @@ class RealFrankaImageDataset(BaseImageDataset):
         self.pad_after = pad_after
 
         self.mass_encoding_size = mass_encoding_size
+        self.period_adjustment_rff = period_adjustment_rff
 
-        self.rff_encoder = RandomFourierFeatures(encoding_size=self.mass_encoding_size, vector_size=2)
+        self.rff_encoder = RandomFourierFeatures(encoding_size=self.mass_encoding_size, vector_size=2, period_adjustment_rff=self.period_adjustment_rff)
         self.proba_diffusion_remove_mass_label = proba_diffusion_remove_mass_label
 
     def get_validation_dataset(self):
