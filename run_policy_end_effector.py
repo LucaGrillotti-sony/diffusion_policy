@@ -20,6 +20,7 @@ from gym import spaces
 from hydra.core.hydra_config import HydraConfig
 
 from diffusion_policy.common.pytorch_util import dict_apply
+from diffusion_policy.dataset.real_franka_image_dataset import RandomFourierFeatures
 from diffusion_policy.env_runner.real_robot_runner import RealRobot
 from diffusion_policy.policy.diffusion_guided_ddim import DDIMGuidedScheduler
 from diffusion_policy.workspace.train_diffusion_transformer_lowdim_workspace import \
@@ -206,7 +207,7 @@ class EnvControlWrapper:
 
 
 class EnvControlWrapperWithCameras(EnvControlWrapper):
-    def __init__(self, jpc_pub, n_obs_steps, n_action_steps, path_bag_robot_description):
+    def __init__(self, jpc_pub, n_obs_steps, n_action_steps, path_bag_robot_description, rff_encoder: RandomFourierFeatures, mass_goal=None):
         super().__init__(jpc_pub, n_obs_steps, n_action_steps)
 
         self.camera_1_compressed_msg = None
@@ -218,6 +219,17 @@ class EnvControlWrapperWithCameras(EnvControlWrapper):
         self.cv_bridge = CvBridge()
         self._kdl = KDLSolver(self.robot_description)
         self._kdl .set_kinematic_chain('panda_link0', 'panda_hand')
+
+        self.mass_encoding = self._get_mass_encoding(mass_goal, rff_encoder)
+
+    def _get_mass_encoding(self, mass, rff_encoder):
+        if mass is None:
+            _mass_encoding = np.array([[0., 1.]])
+        else:
+            _mass_encoding = np.array([[mass, 0.]])
+
+        return rff_encoder.encode(_mass_encoding)[0]
+
 
     def set_camera_1_compressed_msg(self, msg):
         self.camera_1_compressed_msg = msg
@@ -255,6 +267,7 @@ class EnvControlWrapperWithCameras(EnvControlWrapper):
             # 'camera_2': camera_2_data.astype(np.float32),
             # 'camera_3': camera_3_data.astype(np.float32),
             'camera_0': camera_0_data.astype(np.float32),
+            'mass': self.mass_encoding.astype(np.float32)
         }
 
 
@@ -273,7 +286,7 @@ class DiffusionController(NodeParameterMixin,
         camera_1_topic='/d405rs01/color/image_rect_raw/compressed',
     )
 
-    def __init__(self, policy, critic, n_obs_steps, n_action_steps, path_bag_robot_description, *args, node_name='robot_calibrator', **kwargs):
+    def __init__(self, policy, critic, n_obs_steps, n_action_steps, path_bag_robot_description, rff_encoder, mass_goal, *args, node_name='robot_calibrator', **kwargs):
         super().__init__(*args, node_name=node_name, node_parameters=self.NODE_PARAMETERS, **kwargs)
         # jtc commandor
         self.current_command = None
@@ -293,7 +306,9 @@ class DiffusionController(NodeParameterMixin,
         self.env = EnvControlWrapperWithCameras(self.jpc_pub,
                                                 n_obs_steps=n_obs_steps,
                                                 n_action_steps=n_action_steps,
-                                                path_bag_robot_description=path_bag_robot_description)
+                                                path_bag_robot_description=path_bag_robot_description,
+                                                rff_encoder=rff_encoder,
+                                                mass_goal=mass_goal,)
         self.policy = policy
         self.policy.eval().cuda()
         self.policy.reset()
@@ -468,6 +483,8 @@ def main(args=None):
         **cfg.logging
     )
 
+    dataset = hydra.utils.instantiate(cfg.task.dataset)
+
     # workspace: BaseWorkspace = TrainDiffusionUnetLowdimWorkspace(cfg)
     # workspace.load_checkpoint()
     #
@@ -487,6 +504,8 @@ def main(args=None):
                                 n_obs_steps=n_obs_steps,
                                 n_action_steps=n_action_steps,
                                 path_bag_robot_description=path_bag_robot_description,
+                                rff_encoder=dataset.rff_encoder,
+                                mass_goal=None,
                                 ),
         ]
 
