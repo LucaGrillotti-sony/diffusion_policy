@@ -79,6 +79,7 @@ class EnvControlWrapper:
                 # 'camera_2': gym.spaces.Box(0, 1, shape=(3, 240, 320), dtype=np.float32),
                 # 'camera_3': gym.spaces.Box(0, 1, shape=(3, 240, 320), dtype=np.float32),
                 'camera_0': gym.spaces.Box(0, 1, shape=(3, 240, 320), dtype=np.float32),
+                'mass': gym.spaces.Box( -1, 1, shape=(256,), dtype=np.float32),
             }
         )
         # self.observation_space = gym.spaces.Box(
@@ -91,7 +92,8 @@ class EnvControlWrapper:
         # self.init_pos = init_positions[len(init_positions) // 2,:7]
         # self.init_pos = init_positions[len(init_positions) // 3, :7]
         # self.init_pos = np.asarray([-0.38435703, -0.82782065, 0.25952787, -2.3897604, 0.18524243, 1.5886066, 0.59382302])
-        self.init_pos = np.asarray([-0.08435703, -0.62782065, 0.25952787, -2.3897604, 0.18524243, 1.5886066, 0.59382302])
+        # self.init_pos = np.asarray([-0.08435703, -0.62782065, 0.25952787, -2.3897604, 0.18524243, 1.5886066, 0.59382302])
+        self.init_pos = None
         self._jstate = None
 
         self.n_obs_steps = n_obs_steps
@@ -167,7 +169,8 @@ class EnvControlWrapper:
         return action
 
     def step(self, action, do_return_stacked_obs=False):
-        self.jpc_send_goal(action)
+        if action is not None:
+            self.jpc_send_goal(action)
         obs = self.get_obs()
         reward = -1.
         info = {}
@@ -228,7 +231,7 @@ class EnvControlWrapperWithCameras(EnvControlWrapper):
         else:
             _mass_encoding = np.array([[mass, 0.]])
 
-        return rff_encoder.encode(_mass_encoding)[0]
+        return rff_encoder.encode_vector(_mass_encoding)[0]
 
 
     def set_camera_1_compressed_msg(self, msg):
@@ -388,7 +391,7 @@ class DiffusionController(NodeParameterMixin,
 
                 # print("To", To)
                 for key, value in stacked_obs.items():
-                    if key == "eef":
+                    if key in ("eef", "mass"):
                         continue
                     stacked_obs[key] = np.transpose(stacked_obs[key], (0, 1, 4, 2, 3))
                     print(key, stacked_obs[key].shape)
@@ -396,9 +399,10 @@ class DiffusionController(NodeParameterMixin,
                 # device transfer
                 obs_dict = dict_apply(stacked_obs,
                                       lambda x: torch.from_numpy(x).cuda())
-                print(dict_apply(stacked_obs,  lambda x: x.shape))
-                # action_dict = self.policy.predict_action(obs_dict)
-                action_dict = self.policy.predict_action_from_several_samples(obs_dict, self.critic)
+
+                print(dict_apply(stacked_obs, lambda x: x.shape))
+                # action_dict = self.policy.predict_action_from_several_samples(obs_dict, self.critic, )
+                action_dict = self.policy.predict_action(obs_dict)
                 np_action_dict = dict_apply(action_dict,
                                             lambda x: x.detach().to('cpu').numpy())
 
@@ -460,7 +464,8 @@ def main(args=None):
     # ckpt_path = "/home/ros/humble/src/diffusion_policy/data/outputs/2024.01.16/19.33.40_train_diffusion_unet_image_franka_kitchen_lowdim/checkpoints/latest.ckpt"
     # ckpt_path = "/home/ros/humble/src/diffusion_policy/data/outputs/2024.01.26/12.15.56_train_diffusion_unet_image_franka_kitchen_lowdim/checkpoints/latest.ckpt"  # trained to also optimize actions
     # ckpt_path = "/home/ros/humble/src/diffusion_policy/data/outputs/2024.01.31/19.22.29_train_diffusion_unet_image_franka_kitchen_lowdim/checkpoints/latest.ckpt"  # trained to also optimize actions
-    ckpt_path = "/home/ros/humble/src/diffusion_policy/data/outputs/2024.02.16/17.43.43_train_diffusion_unet_image_franka_kitchen_lowdim/checkpoints/latest.ckpt"  # trained to also optimize actions
+    # ckpt_path = "/home/ros/humble/src/diffusion_policy/data/outputs/2024.02.16/17.43.43_train_diffusion_unet_image_franka_kitchen_lowdim/checkpoints/latest.ckpt"  # trained to also optimize actions
+    ckpt_path = "/home/ros/humble/src/diffusion_policy/data/outputs/2024.03.04/15.39.58_train_diffusion_unet_image_franka_kitchen_lowdim/checkpoints/latest.ckpt"  # trained to also optimize actions
     n_obs_steps = 2
     n_action_steps = 8
     path_bag_robot_description = "/home/ros/humble/src/read-db/rosbag2_2024_01_16-19_05_24/"
@@ -505,7 +510,7 @@ def main(args=None):
                                 n_action_steps=n_action_steps,
                                 path_bag_robot_description=path_bag_robot_description,
                                 rff_encoder=dataset.rff_encoder,
-                                mass_goal=None,
+                                mass_goal=3.1,
                                 ),
         ]
 

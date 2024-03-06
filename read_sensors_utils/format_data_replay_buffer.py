@@ -229,13 +229,23 @@ def treat_folder(path_load, path_save, index_episode):
     robot_states = parser.get_messages("/franka_robot_state_broadcaster/robot_state")
     print("robot states", len(robot_states))
 
-    all_times_cartesian_commands, all_end_effector_targets = collect_data_from_messages(target_end_effector_poses, start_time, transform_fn=lambda x: np.asarray(x.data))
     # all_times_joint_states, all_end_effector_pos = collect_data_from_messages(joint_states, start_time, transform_fn=functools.partial(end_effector_calculator, _kdl=kdl))  # TODO
     all_times_joint_states, all_end_effector_pos = collect_data_from_messages(
         robot_states,
         start_time,
         transform_fn=lambda robot_state: end_effector_calculator(command_1=np.asarray(robot_state.q), _kdl=kdl),
     )  # TODO
+
+    all_times_cartesian_commands, all_end_effector_targets = collect_data_from_messages(target_end_effector_poses, start_time, transform_fn=lambda x: np.asarray(x.data))
+    if len(all_end_effector_targets) == 0:
+        print("*** ERROR while reading target data, now using joints states data...")
+        all_times_cartesian_commands = all_times_joint_states[1:]
+        all_end_effector_targets = all_end_effector_pos[1:]
+
+        all_times_joint_states = all_times_joint_states[:-1]
+        all_end_effector_pos = all_end_effector_pos[:-1]
+
+
 
     target_end_effector_pos_interpolated = interpolate(all_times_cartesian_commands, all_end_effector_targets, timestamps_interpolation)
     current_eef_pos_interpolated = interpolate(all_times_joint_states, all_end_effector_pos, timestamps_interpolation)
@@ -278,11 +288,15 @@ def treat_folder(path_load, path_save, index_episode):
 
 
 def main():
-    PATH_TO_LOAD = pathlib.Path("/home/ros/humble/src/diffusion_policy/data/bags_replayed/").absolute()
-    PATH_SAVE = pathlib.Path("/home/ros/humble/src/diffusion_policy/data/test_dataset_2").absolute()
+    PATH_TO_LOAD = pathlib.Path("/home/ros/humble/src/diffusion_policy/data/fake_puree_experiments/bags_replayed/").absolute()
+    PATH_SAVE = pathlib.Path("/home/ros/humble/src/diffusion_policy/data/fake_puree_experiments/diffusion_policy_dataset/").absolute()
     PATH_SAVE.mkdir(exist_ok=True, parents=True)
     rosbag_paths = [file for file in PATH_TO_LOAD.iterdir() if file.name.startswith("rosbag")]
+    for file in PATH_TO_LOAD.iterdir():
+        print(file)
+    print(rosbag_paths)
     for index, rosbag_paths in enumerate(sorted(rosbag_paths)):
+        print("----------------------------------------------------------------------------------------")
         print(f"Treating folder {rosbag_paths}")
         treat_folder(path_load=rosbag_paths.absolute(),
                      path_save=PATH_SAVE,

@@ -45,6 +45,7 @@ class DiffusionUnetHybridImagePolicy(BaseImagePolicy):
             obs_encoder_group_norm=False,
             eval_fixed_crop=False,
             gamma=0.99,
+            weight_classification_free_guidance_sampling=0,
             # parameters passed to step
             **kwargs):
         super().__init__()
@@ -182,6 +183,8 @@ class DiffusionUnetHybridImagePolicy(BaseImagePolicy):
             num_inference_steps = noise_scheduler.config.num_train_timesteps
         self.num_inference_steps = num_inference_steps
 
+        self.weight_classification_free_guidance_sampling = weight_classification_free_guidance_sampling
+
         print("Diffusion params: %e" % sum(p.numel() for p in self.model.parameters()))
         print("Vision params: %e" % sum(p.numel() for p in self.obs_encoder.parameters()))
     
@@ -201,6 +204,14 @@ class DiffusionUnetHybridImagePolicy(BaseImagePolicy):
             dtype=condition_data.dtype,
             device=condition_data.device,
             generator=generator)
+
+        if "neutral_global_cond" in kwargs:
+            do_classification_free_guidance = True
+            neutral_global_cond = kwargs["neutral_global_cond"]
+            neutral_local_cond = kwargs["neutral_local_cond"]
+            assert self.weight_classification_free_guidance_sampling is not None
+        else:
+            do_classification_free_guidance = False
     
         # set step values
         scheduler.set_timesteps(self.num_inference_steps)
@@ -212,6 +223,11 @@ class DiffusionUnetHybridImagePolicy(BaseImagePolicy):
             # 2. predict model output
             model_output = model(trajectory, t, 
                 local_cond=local_cond, global_cond=global_cond)
+
+            if do_classification_free_guidance:
+                neutral_model_output = model(trajectory, t,
+                    local_cond=neutral_local_cond, global_cond=neutral_global_cond)
+                model_output = (1 + self.weight_classification_free_guidance_sampling) * model_output - self.weight_classification_free_guidance_sampling * neutral_model_output
 
             # 3. compute previous image: x_t -> x_t-1
             output = scheduler.step(
@@ -274,10 +290,12 @@ class DiffusionUnetHybridImagePolicy(BaseImagePolicy):
         return norm_gradient_energy - coefficient * score_trajectory
 
 
-    def predict_action(self, obs_dict: Dict[str, torch.Tensor]) -> Dict[str, torch.Tensor]:
+    def predict_action(self, obs_dict: Dict[str, torch.Tensor], neutral_obs_dict=None) -> Dict[str, torch.Tensor]:
         """
         obs_dict: must include "obs" key
         result: must include "action" key
+
+        neutral_obs_dict: same as obs_dict but with the neutral mass - setting it triggers classification free guidance
         """
         assert 'past_action' not in obs_dict # not implemented yet
         # normalize input
@@ -306,15 +324,17 @@ class DiffusionUnetHybridImagePolicy(BaseImagePolicy):
             cond_data = torch.zeros(size=(B, T, Da), device=device, dtype=dtype)
             cond_mask = torch.zeros_like(cond_data, dtype=torch.bool)
         else:
-            # condition through impainting
-            this_nobs = dict_apply(nobs, lambda x: x[:,:To,...].reshape(-1,*x.shape[2:]))
-            nobs_features = self.obs_encoder(this_nobs)
-            # reshape back to B, To, Do
-            nobs_features = nobs_features.reshape(B, To, -1)
-            cond_data = torch.zeros(size=(B, T, Da+Do), device=device, dtype=dtype)
-            cond_mask = torch.zeros_like(cond_data, dtype=torch.bool)
-            cond_data[:,:To,Da:] = nobs_features
-            cond_mask[:,:To,Da:] = True
+            raise NotImplementedError
+
+        dict_neutral_obs_info = {}
+        if neutral_obs_dict is not None:
+            neutral_nobs = self.normalizer.normalize(neutral_obs_dict)
+            this_neutral_nobs = dict_apply(neutral_nobs, lambda x: x[:,:To,...].reshape(-1, *x.shape[2:]))
+            neutral_nobs_features = self.obs_encoder(this_neutral_nobs)
+            neutral_global_cond = neutral_nobs_features.reshape(B, -1)
+            neutral_local_cond = None
+            dict_neutral_obs_info["neutral_global_cond"] = neutral_global_cond
+            dict_neutral_obs_info["neutral_local_cond"] = neutral_local_cond
 
         # run sampling
         nsample, metrics = self.conditional_sample(
@@ -322,7 +342,9 @@ class DiffusionUnetHybridImagePolicy(BaseImagePolicy):
             cond_mask,
             local_cond=local_cond,
             global_cond=global_cond,
-            **self.kwargs)
+            **self.kwargs,
+            **dict_neutral_obs_info,
+        )
         
         # unnormalize prediction
         naction_pred = nsample[..., :Da]
@@ -342,7 +364,12 @@ class DiffusionUnetHybridImagePolicy(BaseImagePolicy):
         }
         return result
 
-    def predict_action_from_several_samples(self, obs_dict, critic_network: DoubleCritic):
+    def predict_action_from_several_samples(self, obs_dict, critic_network: DoubleCritic, neutral_obs_dict=None):
+        """
+        neutral_obs_dict: same as obs_dict but with the neutral mass - setting it triggers classification free guidance
+        """
+
+
         nobs = self.normalizer.normalize(obs_dict)
         value = next(iter(nobs.values()))
         B, To = value.shape[:2]
@@ -370,7 +397,11 @@ class DiffusionUnetHybridImagePolicy(BaseImagePolicy):
             cond_mask = torch.zeros_like(cond_data, dtype=torch.bool)
         number_samples = 50
         repeated_obs_dict = custom_tree_map(lambda x: torch.repeat_interleave(x, number_samples, dim=0), obs_dict)
-        result_dict = self.predict_action(repeated_obs_dict)
+        if neutral_obs_dict is not None:
+            repeated_neutral_obs_dict = custom_tree_map(lambda x: torch.repeat_interleave(x, number_samples, dim=0), neutral_obs_dict)
+            result_dict = self.predict_action(repeated_obs_dict, repeated_neutral_obs_dict)
+        else:
+            result_dict = self.predict_action(repeated_obs_dict)
         action_full_horizon = result_dict['action_pred']
         naction_full_horizon = self.normalizer['action'].normalize(action_full_horizon)
         values_critic = critic_network.get_one_critic(naction_full_horizon, local_cond=None, global_cond=global_cond,)
