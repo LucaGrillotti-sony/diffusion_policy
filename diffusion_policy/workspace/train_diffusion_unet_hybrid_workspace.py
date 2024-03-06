@@ -406,7 +406,8 @@ class TrainDiffusionUnetHybridWorkspace(BaseWorkspace):
         metrics = {
             "sigmoid_lagrange": sigmoid_lagrange.item(),
             "lagrange": lagrangian.detach().item(),
-            "loss_lagrange": constraint_loss.detach().item()
+            "loss_lagrange": constraint_loss.detach().item(),
+            "mse_training": mse,
         }
         return constraint_loss, metrics
 
@@ -418,7 +419,7 @@ class TrainDiffusionUnetHybridWorkspace(BaseWorkspace):
 
     def postprocess_clip_lagrange(self):
         # Keep the lagrange parameter in a tractable range: -15, 15
-        self.lagrange_parameter.data = torch.clamp(self.lagrange_parameter.data, -15., 15.)
+        self.lagrange_parameter.data = torch.clamp(self.lagrange_parameter.data, -10., 10.)
 
     def update_lagrange(self, loss, postprocess_clip=True):
         self.lagrange_optimizer.zero_grad()
