@@ -503,7 +503,9 @@ class DiffusionUnetHybridImagePolicy(BaseImagePolicy):
         alpha_coeff = self.eta_coeff_critic / mean_abs_critic_values
         loss_score = alpha_coeff * loss_score
 
-        loss_actor = loss_diffusion + sigmoid_lagrange * loss_score
+        # loss_actor = loss_diffusion + sigmoid_lagrange * loss_score
+        loss_actor = loss_diffusion
+
         # loss_lagrange = self.compute_loss_lagrange(actions_policy_dict, batch)
         metrics = {
             "diffusion_loss": loss_diffusion,

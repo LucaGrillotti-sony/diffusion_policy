@@ -231,35 +231,35 @@ class TrainDiffusionUnetHybridWorkspace(BaseWorkspace):
                             self.optimizer.zero_grad()
                             lr_scheduler.step()
 
-                        raw_loss_lagrange, _metrics_lagrange = self.compute_loss_lagrange(sample_actions=_other_data_model["sample_actions"], batch=batch)
-                        self.update_lagrange(raw_loss_lagrange)
+                        # raw_loss_lagrange, _metrics_lagrange = self.compute_loss_lagrange(sample_actions=_other_data_model["sample_actions"], batch=batch)
+                        # # self.update_lagrange(raw_loss_lagrange)
 
-                        # Update classifier
-                        labels = batch['label']
-                        shape_labels = labels.shape
-                        nobs_features = _other_data_model['nobs_features'].clone().detach()
-                        nobs_features = nobs_features.view(*shape_labels, -1)
-                        loss_classifier = self.classifier.compute_loss(nobs_features, labels)
-                        loss_classifier.backward()
-                        self.classifier_optimizer.step()
-                        self.classifier_optimizer.zero_grad()
+                        # # Update classifier
+                        # labels = batch['label']
+                        # shape_labels = labels.shape
+                        # nobs_features = _other_data_model['nobs_features'].clone().detach()
+                        # nobs_features = nobs_features.view(*shape_labels, -1)
+                        # loss_classifier = self.classifier.compute_loss(nobs_features, labels)
+                        # loss_classifier.backward()
+                        # self.classifier_optimizer.step()
+                        # self.classifier_optimizer.zero_grad()
 
-                        # Update critic
-                        # print(batch['action'].shape, nobs_features_flat.shape)
-                        rewards = self.reward_function(nobs_features=nobs_features, actions=batch['action'])
-                        loss_critic, metrics_critic = self.critic.compute_critic_loss(batch,
-                                                                                      nobs_features=_other_data_model['nobs_features'],
-                                                                                      critic_target=self.critic_target,
-                                                                                      policy=self.model,
-                                                                                      rewards=rewards,)
-                        loss_critic.backward()
-                        self.critic_optimizer.step()
-                        self.critic_optimizer.zero_grad()
+                        # # Update critic
+                        # # print(batch['action'].shape, nobs_features_flat.shape)
+                        # rewards = self.reward_function(nobs_features=nobs_features, actions=batch['action'])
+                        # loss_critic, metrics_critic = self.critic.compute_critic_loss(batch,
+                        #                                                               nobs_features=_other_data_model['nobs_features'],
+                        #                                                               critic_target=self.critic_target,
+                        #                                                               policy=self.model,
+                        #                                                               rewards=rewards,)
+                        # loss_critic.backward()
+                        # self.critic_optimizer.step()
+                        # self.critic_optimizer.zero_grad()
 
-                        # update ema and critic target
-                        if cfg.training.use_ema:
-                            ema.step(self.model)
-                        critic_target.step(self.critic)
+                        # # update ema and critic target
+                        # if cfg.training.use_ema:
+                        #     ema.step(self.model)
+                        # critic_target.step(self.critic)
 
                         # logging
                         raw_loss_cpu = raw_loss_actor.item()
@@ -270,10 +270,10 @@ class TrainDiffusionUnetHybridWorkspace(BaseWorkspace):
                             'global_step': self.global_step,
                             'epoch': self.epoch,
                             'lr': lr_scheduler.get_last_lr()[0],
-                            "loss_classifier": loss_classifier.item(),
+                            # "loss_classifier": loss_classifier.item(),
                             **_metrics_training,
-                            **_metrics_lagrange,
-                            **metrics_critic,
+                            # **_metrics_lagrange,
+                            # **metrics_critic,
                         }
 
                         is_last_batch = (batch_idx == (len(train_dataloader)-1))
@@ -318,15 +318,17 @@ class TrainDiffusionUnetHybridWorkspace(BaseWorkspace):
                             for batch_idx, batch in enumerate(tepoch):
                                 batch = dict_apply(batch, lambda x: x.to(device, non_blocking=True))
                                 loss_actor, _metrics, _other_data_model = self.model.compute_loss(batch, sigmoid_lagrange=self.get_sigmoid_lagrange(detach=True), critic_network=self.critic)
-                                labels = batch['label']
-                                shape_labels = labels.shape
-                                nobs_features_flat = _other_data_model['nobs_features'].detach()
-                                nobs_features_flat = nobs_features_flat.view(*shape_labels, -1)
-                                val_loss_classifier = self.classifier.compute_loss(nobs_features_flat, labels)
-                                accuracy_classifier = self.classifier.accuracy(nobs_features_flat, labels)
+                                # labels = batch['label']
+                                # shape_labels = labels.shape
+                                # nobs_features_flat = _other_data_model['nobs_features'].detach()
+                                # nobs_features_flat = nobs_features_flat.view(*shape_labels, -1)
+                                # val_loss_classifier = self.classifier.compute_loss(nobs_features_flat, labels)
+                                # accuracy_classifier = self.classifier.accuracy(nobs_features_flat, labels)
 
                                 val_losses.append(loss_actor)
-                                list_metrics.append({**_metrics, "val_loss_classifier": val_loss_classifier.item(), "val_accuracy_classifier": accuracy_classifier.item()})
+                                # list_metrics.append({**_metrics, "val_loss_classifier": val_loss_classifier.item(), "val_accuracy_classifier": accuracy_classifier.item()})
+                                list_metrics.append(_metrics)
+
                                 if (cfg.training.max_val_steps is not None) \
                                     and batch_idx >= (cfg.training.max_val_steps-1):
                                     break
