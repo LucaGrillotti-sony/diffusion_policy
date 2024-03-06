@@ -88,7 +88,7 @@ class TrainDiffusionUnetHybridWorkspace(BaseWorkspace):
         self.epoch = 0
 
         NUM_CLASSES = 3
-        IN_FEATURES_CLASSIFIER = 167
+        IN_FEATURES_CLASSIFIER = 391
 
         self.classifier = ClassifierStageScooping(in_features=IN_FEATURES_CLASSIFIER, number_of_classes=NUM_CLASSES)
         self.classifier = self.classifier.to(cfg.training.device)
@@ -188,6 +188,9 @@ class TrainDiffusionUnetHybridWorkspace(BaseWorkspace):
             self.ema_model.to(device)
         self.critic_target.to(device)
         optimizer_to(self.optimizer, device)
+        optimizer_to(self.critic_optimizer, device)
+        #  optimizer_to(self.lagrange_optimizer, device)
+        optimizer_to(self.classifier_optimizer, device)
 
         # save batch for sampling
         train_sampling_batch = None
