@@ -145,9 +145,9 @@ class TrainDiffusionUnetHybridWorkspace(BaseWorkspace):
             ema = hydra.utils.instantiate(
                 cfg.ema,
                 model=self.ema_model)
-        critic_target = hydra.utils.instantiate(
-            cfg.critic_target,
-            model=self.critic_target)
+        # critic_target = hydra.utils.instantiate(
+        #     cfg.critic_target,
+        #     model=self.critic_target)
 
 
         # configure env
@@ -231,6 +231,8 @@ class TrainDiffusionUnetHybridWorkspace(BaseWorkspace):
                             self.optimizer.zero_grad()
                             lr_scheduler.step()
 
+                        mse_predictions_train = F.mse_loss(_other_data_model["sample_actions"]['action_pred'], batch['action']).detach().item()
+                        _metrics_lagrange = {"mse_training": mse_predictions_train}
                         # raw_loss_lagrange, _metrics_lagrange = self.compute_loss_lagrange(sample_actions=_other_data_model["sample_actions"], batch=batch)
                         # # self.update_lagrange(raw_loss_lagrange)
 
@@ -256,10 +258,12 @@ class TrainDiffusionUnetHybridWorkspace(BaseWorkspace):
                         # self.critic_optimizer.step()
                         # self.critic_optimizer.zero_grad()
 
-                        # # update ema and critic target
-                        # if cfg.training.use_ema:
-                        #     ema.step(self.model)
+                        # # update critic target
                         # critic_target.step(self.critic)
+
+                        # update ema
+                        if cfg.training.use_ema:
+                            ema.step(self.model)
 
                         # logging
                         raw_loss_cpu = raw_loss_actor.item()
@@ -272,7 +276,7 @@ class TrainDiffusionUnetHybridWorkspace(BaseWorkspace):
                             'lr': lr_scheduler.get_last_lr()[0],
                             # "loss_classifier": loss_classifier.item(),
                             **_metrics_training,
-                            # **_metrics_lagrange,
+                            **_metrics_lagrange,
                             # **metrics_critic,
                         }
 

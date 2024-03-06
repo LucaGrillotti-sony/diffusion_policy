@@ -260,8 +260,8 @@ class RealFrankaImageDataset(BaseImageDataset):
             del data[key]
 
         action = data['action'].astype(np.float32)
-        labels = data['label'].astype(np.uint8)
-        labels = labels[T_slice]
+        # labels = data['label'].astype(np.uint8)
+        # labels = labels[T_slice]
 
         assert 'mass' not in obs_dict
         # if 'mass' in obs_dict:
