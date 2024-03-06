@@ -396,9 +396,10 @@ class DiffusionController(NodeParameterMixin,
                 # device transfer
                 obs_dict = dict_apply(stacked_obs,
                                       lambda x: torch.from_numpy(x).cuda())
-                print(dict_apply(stacked_obs,  lambda x: x.shape))
+
+                print(dict_apply(stacked_obs, lambda x: x.shape))
                 # action_dict = self.policy.predict_action(obs_dict)
-                action_dict = self.policy.predict_action_from_several_samples(obs_dict, self.critic)
+                action_dict = self.policy.predict_action_from_several_samples(obs_dict, self.critic, )
                 np_action_dict = dict_apply(action_dict,
                                             lambda x: x.detach().to('cpu').numpy())
 
