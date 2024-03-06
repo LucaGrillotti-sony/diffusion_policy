@@ -33,7 +33,7 @@ keypoint_visible_rate: 1.0
 logging:
   group: null
   id: null
-  mode: disabled
+  mode: online
   name: 2023.02.25-03.06.09_train_diffusion_unet_image_franka
   project: diffusion_policy_debug
   resume: true
@@ -112,7 +112,7 @@ policy:
         type: rgb
       mass:
         shape:
-          - 32  # after RFF
+          - 256  # after RFF
         type: low_dim
 #      camera_2:
 #        shape:
@@ -177,7 +177,7 @@ critic:
         type: rgb
       mass:
         shape:
-          - 32 # after RFF
+          - 256 # after RFF
         type: low_dim
       eef:
         shape:
@@ -211,7 +211,7 @@ task:
           type: rgb
         mass:
           shape:
-            - 32 # after RFF
+            - 256 # after RFF
           type: low_dim
 #        camera_2:
 #          shape:
@@ -268,16 +268,16 @@ training:
   seed: 42
   tqdm_interval_sec: 1.0
   use_ema: true
-  val_every: 1
+  val_every: 5
 val_dataloader:
-  batch_size: 32
-  num_workers: 8
+  batch_size: 16
+  num_workers: 32
   persistent_workers: false
   pin_memory: true
   shuffle: false
 dataloader:
-  batch_size: 32
-  num_workers: 16
+  batch_size: 64
+  num_workers: 32
   persistent_workers: false
   pin_memory: true
   shuffle: true
