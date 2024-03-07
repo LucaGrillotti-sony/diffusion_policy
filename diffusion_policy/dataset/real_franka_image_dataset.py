@@ -63,7 +63,7 @@ class RealFrankaImageDataset(BaseImageDataset):
             proba_diffusion_remove_mass_label=0.1,
             period_adjustment_rff=0.15,
         ):
-        dataset_path = "/home/ros/humble/src/diffusion_policy/data/fake_puree_experiments/diffusion_policy_dataset"
+        # dataset_path = "/home/ros/humble/src/diffusion_policy/data/fake_puree_experiments/diffusion_policy_dataset"
         assert os.path.isdir(dataset_path)
         
         replay_buffer = None
