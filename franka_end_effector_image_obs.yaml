@@ -287,7 +287,7 @@ val_dataloader:
   shuffle: false
 dataloader:
   batch_size: 64
-  num_workers: 32
+  num_workers: 8
   persistent_workers: false
   pin_memory: true
   shuffle: true
