@@ -79,7 +79,7 @@ class EnvControlWrapper:
                 # 'camera_2': gym.spaces.Box(0, 1, shape=(3, 240, 320), dtype=np.float32),
                 # 'camera_3': gym.spaces.Box(0, 1, shape=(3, 240, 320), dtype=np.float32),
                 'camera_0': gym.spaces.Box(0, 1, shape=(3, 240, 320), dtype=np.float32),
-                'mass': gym.spaces.Box( -1, 1, shape=(256,), dtype=np.float32),
+               # 'mass': gym.spaces.Box( -1, 1, shape=(256,), dtype=np.float32),
             }
         )
         # self.observation_space = gym.spaces.Box(
@@ -270,7 +270,7 @@ class EnvControlWrapperWithCameras(EnvControlWrapper):
             # 'camera_2': camera_2_data.astype(np.float32),
             # 'camera_3': camera_3_data.astype(np.float32),
             'camera_0': camera_0_data.astype(np.float32),
-            'mass': self.mass_encoding.astype(np.float32)
+            # 'mass': self.mass_encoding.astype(np.float32)
         }
 
 
@@ -465,7 +465,8 @@ def main(args=None):
     # ckpt_path = "/home/ros/humble/src/diffusion_policy/data/outputs/2024.01.26/12.15.56_train_diffusion_unet_image_franka_kitchen_lowdim/checkpoints/latest.ckpt"  # trained to also optimize actions
     # ckpt_path = "/home/ros/humble/src/diffusion_policy/data/outputs/2024.01.31/19.22.29_train_diffusion_unet_image_franka_kitchen_lowdim/checkpoints/latest.ckpt"  # trained to also optimize actions
     # ckpt_path = "/home/ros/humble/src/diffusion_policy/data/outputs/2024.02.16/17.43.43_train_diffusion_unet_image_franka_kitchen_lowdim/checkpoints/latest.ckpt"  # trained to also optimize actions
-    ckpt_path = "/home/ros/humble/src/diffusion_policy/data/outputs/2024.03.04/15.39.58_train_diffusion_unet_image_franka_kitchen_lowdim/checkpoints/latest.ckpt"  # trained to also optimize actions
+    # ckpt_path = "/home/ros/humble/src/diffusion_policy/data/outputs/2024.03.04/15.39.58_train_diffusion_unet_image_franka_kitchen_lowdim/checkpoints/latest.ckpt"  # trained to also optimize actions
+    ckpt_path = "/home/ros/humble/src/diffusion_policy/data/outputs/2024.03.06/18.54.44_train_diffusion_unet_image_franka_kitchen_lowdim/checkpoints/latest.ckpt"  # trained to also optimize actions
     n_obs_steps = 2
     n_action_steps = 8
     path_bag_robot_description = "/home/ros/humble/src/read-db/rosbag2_2024_01_16-19_05_24/"
@@ -498,13 +499,14 @@ def main(args=None):
     # print(workspace.model.normalizer["obs"].params_dict["offset"])
 
     workspace.model = workspace.model.cuda()
+    workspace.ema_model = workspace.ema_model.cuda()
     # workspace.model = torch.compile(workspace.model).cuda()
 
     args = None
     rclpy.init(args=args)
     try:
         nodes = [
-            DiffusionController(policy=workspace.model,
+            DiffusionController(policy=workspace.ema_model,
                                 critic=workspace.critic,
                                 n_obs_steps=n_obs_steps,
                                 n_action_steps=n_action_steps,
