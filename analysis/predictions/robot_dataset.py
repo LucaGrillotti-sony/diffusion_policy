@@ -10,7 +10,8 @@ import torch
 from gym import spaces
 from tqdm import tqdm
 
-from diffusion_policy.common.pytorch_util import dict_apply
+from diffusion_policy.common.pytorch_util import dict_apply, custom_tree_map
+from diffusion_policy.dataset.real_franka_image_dataset import RealFrankaImageDataset
 from diffusion_policy.env_runner.real_robot_runner import RealRobot
 from diffusion_policy.workspace.train_diffusion_transformer_lowdim_workspace import \
     TrainDiffusionTransformerLowdimWorkspace
@@ -86,31 +87,60 @@ def get_dataset(dataset_dir):
 
     return all_episodes
 
+def get_one_episode(dataset: RealFrankaImageDataset, n_action_steps: int, n_latency_steps: int, n_obs_steps: int, index_episode: int = 0):
+    sampler = dataset.sampler
+    replay_buffer = dataset.replay_buffer
+    episode_ends = replay_buffer.episode_ends[:]
+
+    index_start = episode_ends[index_episode]
+    index_end = episode_ends[index_episode + 1]
+
+    index_sample_start = index_start
+    index_sample_end = index_start + n_obs_steps + n_action_steps
+    while index_sample_end < index_end:
+        obs = replay_buffer['obs']
+        new_obs = {}
+        for key in obs.keys():
+            if key in ("camera_0", "camera_1"):
+                new_obs[key] = obs[key][index_sample_start:index_sample_start + n_obs_steps] / 255.0
+            else:
+                new_obs[key] = obs[key][index_sample_start:index_sample_start + n_obs_steps]
+
+        yield {
+            'obs': new_obs,
+            'action': replay_buffer['action'],
+        }
+
+        index_sample_start += n_action_steps
+        index_sample_end += n_action_steps
+
 
 def main():
     # ckpt_path = "/home/lucagrillotti/ros/humble/src/diffusion_policy/results/13.09.31_train_diffusion_unet_lowdim_kitchen_lowdim/checkpoints/latest.ckpt"
     # ckpt_path = "/home/lucagrillotti/projects/diffusion_policy/data/outputs/2023.12.21/12.21_12.11.57_end_effector_control/checkpoints/latest.ckpt"
-    ckpt_path = "/home/lucagrillotti/projects/diffusion_policy/data/outputs/2023.12.22/17.22.09_train_diffusion_unet_lowdim_kitchen_lowdim/checkpoints/latest.ckpt"
+    # ckpt_path = "/home/lucagrillotti/projects/diffusion_policy/data/outputs/2023.12.22/17.22.09_train_diffusion_unet_lowdim_kitchen_lowdim/checkpoints/latest.ckpt"
+    ckpt_path = "/home/ros/humble/src/diffusion_policy/data/outputs/2024.03.07/17.56.19_train_diffusion_unet_image_franka_kitchen_lowdim_ok/checkpoints/latest.ckpt"  # basic, no reward, ddpm
     # dataset_dir = "/data/kitchen/kitchen_demos_multitask/cartesian_control/"
-    dataset_dir = "/home/lucagrillotti/projects/diffusion_policy/data/kitchen/kitchen_demos_multitask/cartesian_control_all"
+    # dataset_dir = "/home/lucagrillotti/projects/diffusion_policy/data/kitchen/kitchen_demos_multitask/cartesian_control_all"
+    dataset_dir = "/home/ros/humble/src/diffusion_policy/data/fake_puree_experiments/diffusion_policy_dataset/"
 
     payload = torch.load(open(ckpt_path, 'rb'), pickle_module=dill)
     cfg = payload['cfg']
+    cfg.task.dataset.dataset_path = "/home/ros/humble/src/diffusion_policy/data/fake_puree_experiments/diffusion_policy_dataset/"
+    dataset: RealFrankaImageDataset = hydra.utils.instantiate(cfg.task.dataset)
     cls = hydra.utils.get_class(cfg._target_)
     workspace = cls(cfg)
     workspace: BaseWorkspace
-    workspace.load_payload(payload, exclude_keys=None, include_keys=None)
+    workspace.load_payload(payload, exclude_keys=None, include_keys=None) # TODO
     policy = workspace.model
-    policy.num_inference_steps = 16
 
-    list_episodes = get_dataset(dataset_dir)
-    one_episode = list_episodes[0]
+    # list_episodes = get_dataset(dataset_dir)
+    one_episode = next(get_one_episode(dataset, 8, 0, 2, 0))
 
     sequence_observations = one_episode["obs"]
     sequence_actions = one_episode["action"]
-    sequence_times = one_episode["time"]
 
-    n_action_steps = 6
+    n_action_steps = 8
     n_latency_steps = 0
     n_obs_steps = 2
 
@@ -121,23 +151,10 @@ def main():
     num_dim_actions = sequence_actions.shape[1]
     color = plt.cm.rainbow(np.linspace(0, 1, num_dim_actions))
 
-    for index_action, c in enumerate(color):
-        plt.plot(sequence_times, sequence_actions[:, index_action], c=c)
-        # plt.plot(times, stacked_true_actions[:, index_action], c=c)
-        # plt.plot(times, predicted_actions[:, index_action], c=c, linestyle="dotted")
-
     for index_start in range(n_obs_steps - 1, len(sequence_observations) - n_obs_steps, n_action_steps):
         print(index_start)
-        # if index_start != 1:
-        #     break
         stacked_obs = sequence_observations[index_start - n_obs_steps + 1:index_start + 1]
-        times = sequence_times[index_start:index_start + n_action_steps]
 
-        # if 21 > times[0] or times[0] > 22:
-        #     continue
-        #
-        if len(times) < n_action_steps:
-            continue
 
         with torch.no_grad():
             np_obs_dict = {
@@ -154,12 +171,9 @@ def main():
             predicted_actions = np_action_dict['action'].squeeze()
 
         for index_action, c in enumerate(color):
-            # plt.plot(sequence_times, sequence_actions[:, index_action], c=c)
-            # plt.plot(times, stacked_true_actions[:, index_action], c=c)
-            plt.plot(times, predicted_actions[:, index_action], c=c, linestyle="dotted")  # TODO: uncomment
-            # plt.scatter(times, predicted_actions[:, index_action], color=c,s=0.4)
-            # plt.plot(times, times, c=c)
-    plt.show()
+            plt.plot(np.arange(len(predicted_actions)), predicted_actions[:, index_action], c=c, linestyle="dotted")
+    plt.savefig("predictions.png")
+    # plt.show()
 
 if __name__ == '__main__':
     main()
