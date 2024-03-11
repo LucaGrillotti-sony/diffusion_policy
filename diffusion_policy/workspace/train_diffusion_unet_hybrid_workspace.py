@@ -77,11 +77,12 @@ class TrainDiffusionUnetHybridWorkspace(BaseWorkspace):
         self.eps_lagrange_constraint_mse_predictions = cfg.eps_lagrange_constraint_mse_predictions
 
         # Critic networks and optimizer: todo
-        self.critic: DoubleCritic = hydra.utils.instantiate(cfg.critic, obs_feature_dim=self.model.obs_feature_dim)
-        self.critic_optimizer = hydra.utils.instantiate(
-            cfg.critic_optimizer, params=self.critic.parameters()
-        )
-        self.critic_target = copy.deepcopy(self.critic)
+        # self.critic: DoubleCritic = hydra.utils.instantiate(cfg.critic, obs_feature_dim=self.model.obs_feature_dim)
+        # self.critic_optimizer = hydra.utils.instantiate(
+        #     cfg.critic_optimizer, params=self.critic.parameters()
+        # )
+        # self.critic_target = copy.deepcopy(self.critic)
+        self.critic = None
 
         # configure training state
         self.global_step = 0
@@ -90,13 +91,13 @@ class TrainDiffusionUnetHybridWorkspace(BaseWorkspace):
         NUM_CLASSES = 3
         IN_FEATURES_CLASSIFIER = 167
 
-        self.classifier = ClassifierStageScooping(in_features=IN_FEATURES_CLASSIFIER, number_of_classes=NUM_CLASSES)
-        self.classifier = self.classifier.to(cfg.training.device)
-        self.classifier_optimizer = torch.optim.AdamW(self.classifier.parameters(),
-                                                      betas=(0.95, 0.999),
-                                                      eps=1.0e-08,
-                                                      lr=0.0001,
-                                                      weight_decay=1.0e-06)
+        # self.classifier = ClassifierStageScooping(in_features=IN_FEATURES_CLASSIFIER, number_of_classes=NUM_CLASSES)
+        # self.classifier = self.classifier.to(cfg.training.device)
+        # self.classifier_optimizer = torch.optim.AdamW(self.classifier.parameters(),
+        #                                               betas=(0.95, 0.999),
+        #                                               eps=1.0e-08,
+        #                                               lr=0.0001,
+        #                                               weight_decay=1.0e-06)
 
 
     def run(self):
@@ -121,10 +122,10 @@ class TrainDiffusionUnetHybridWorkspace(BaseWorkspace):
         val_dataloader = DataLoader(val_dataset, **cfg.val_dataloader)
 
         self.model.set_normalizer(normalizer)
-        self.critic.set_normalizer(normalizer)
+        # self.critic.set_normalizer(normalizer)
         if cfg.training.use_ema:
             self.ema_model.set_normalizer(normalizer)
-        self.critic_target.set_normalizer(normalizer)
+        # self.critic_target.set_normalizer(normalizer)
 
         # configure lr scheduler
         lr_scheduler = get_scheduler(
@@ -145,9 +146,9 @@ class TrainDiffusionUnetHybridWorkspace(BaseWorkspace):
             ema = hydra.utils.instantiate(
                 cfg.ema,
                 model=self.ema_model)
-        critic_target = hydra.utils.instantiate(
-            cfg.critic_target,
-            model=self.critic_target)
+        # critic_target = hydra.utils.instantiate(
+        #     cfg.critic_target,
+        #     model=self.critic_target)
 
 
         # configure env
@@ -182,11 +183,11 @@ class TrainDiffusionUnetHybridWorkspace(BaseWorkspace):
         device = torch.device(cfg.training.device)
         self.model.to(device)
         self.lagrange_parameter.to(device)
-        self.critic.to(device)
+        # self.critic.to(device)
 
         if self.ema_model is not None:
             self.ema_model.to(device)
-        self.critic_target.to(device)
+        # self.critic_target.to(device)
         optimizer_to(self.optimizer, device)
 
         # save batch for sampling
@@ -231,6 +232,8 @@ class TrainDiffusionUnetHybridWorkspace(BaseWorkspace):
                             self.optimizer.zero_grad()
                             lr_scheduler.step()
 
+                        # mse_predictions_train = F.mse_loss(_other_data_model["sample_actions"]['action_pred'], batch['action']).detach().item()
+                        # _metrics_lagrange = {"mse_training": mse_predictions_train}
                         # raw_loss_lagrange, _metrics_lagrange = self.compute_loss_lagrange(sample_actions=_other_data_model["sample_actions"], batch=batch)
                         # # self.update_lagrange(raw_loss_lagrange)
 
@@ -256,10 +259,12 @@ class TrainDiffusionUnetHybridWorkspace(BaseWorkspace):
                         # self.critic_optimizer.step()
                         # self.critic_optimizer.zero_grad()
 
-                        # # update ema and critic target
-                        # if cfg.training.use_ema:
-                        #     ema.step(self.model)
+                        # # update critic target
                         # critic_target.step(self.critic)
+
+                        # update ema
+                        if cfg.training.use_ema:
+                            ema.step(self.model)
 
                         # logging
                         raw_loss_cpu = raw_loss_actor.item()
