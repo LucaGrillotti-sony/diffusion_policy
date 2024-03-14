@@ -91,13 +91,18 @@ class ImageWithTimestamp:
 
 def convert_image(cv_bridge: CvBridge, msg_ros, is_depth=False):
     msg_fmt = "passthrough"
-    img_np = cv_bridge.compressed_imgmsg_to_cv2(msg_ros, msg_fmt)
-
     if is_depth:
-        print("DEPTH", img_np.shape)
+        img_np = cv_bridge.imgmsg_to_cv2(msg_ros)
+    else:
+        img_np = cv_bridge.compressed_imgmsg_to_cv2(msg_ros, "passthrough")
+    print(msg_ros.header) 
+    # img_np = cv_bridge.imgmsg_to_cv2(msg_ros, desired_encoding='32FC1')
+
 
     if img_np is None:
         return None
+    if is_depth:
+        print("DEPTH", img_np.shape)
     img_np = cv2.resize(img_np, (320, 240), interpolation=cv2.INTER_AREA)
     return img_np
 
@@ -131,14 +136,35 @@ def filter_out_data(list_data, timestamps_interpolation):
         list_new_data.append(ImageWithTimestamp(img, t.item()))
     return list_new_data
 
-def make_video(list_images: List[ImageWithTimestamp], name, fps):
+def make_video(list_images: List[ImageWithTimestamp], name, fps, is_color=True):
     import numpy as np
     import cv2
     _image = list_images[0].img_np
+    if not is_color:
+        _image = np.clip(_image, 0., 1.)
     size = _image.shape
-    out = cv2.VideoWriter(name, cv2.VideoWriter_fourcc(*'mp4v'), fps, (size[1], size[0]))
+    out = cv2.VideoWriter(name, cv2.VideoWriter_fourcc(*'mp4v'), fps, (size[1], size[0]), isColor=is_color)
     for _image_data in list_images:
-        out.write(np.uint8(_image_data.img_np))
+        # out.write(np.uint8(np.clip(_image_data.img_np, 0., 1.) * 255))
+        if not is_color:
+            original_image = _image_data.img_np
+            original_image_with_border = cv2.copyMakeBorder(original_image, 1, 1, 1, 1, cv2.BORDER_DEFAULT)
+
+            img_np = np.clip(original_image, 0, 400)
+
+            print(img_np.shape)
+            img_np = (img_np - np.min(img_np)) / (np.max(img_np) - np.min(img_np))
+            img_np = cv2.copyMakeBorder(img_np, 1, 1, 1, 1, cv2.BORDER_DEFAULT)
+            mask = original_image_with_border == 0.
+            mask = mask.astype(np.uint8)
+            kernel = np.ones((3, 3), 'uint8')
+            mask = cv2.dilate(mask, kernel, iterations=1)
+            img_np = cv2.inpaint(img_np.astype(np.float32), mask, 1, cv2.INPAINT_NS)
+            img_np = img_np[1:-1, 1:-1]
+            img_np = 255 * img_np
+        else:
+            img_np = _image_data.img_np
+        out.write(np.uint8(img_np))
     out.release()
 
 
@@ -193,10 +219,13 @@ def treat_folder(path_load, path_save, index_episode):
     # images_azure_07 = parser.get_messages("/azure07/rgb/image_raw/compressed")
     # images_azure_08 = parser.get_messages("/azure08/rgb/image_raw/compressed")
     images_hand_eye_rgb = parser.get_messages("/d405rs01/color/image_rect_raw/compressed")
-    images_hand_eye_depth = parser.get_messages("/d405rs01/aligned_depth_to_color/image_rect_raw/compressed")
+    images_hand_eye_depth = parser.get_messages("/d405rs01/aligned_depth_to_color/image_raw")
 
     # start_time = max(images_azure_06[0][0], images_azure_07[0][0], images_azure_08[0][0], images_hand_eye_rgb[0][0]) / 1e9
+    print(images_hand_eye_rgb[0][0])
+    print(images_hand_eye_depth[0][0])
     start_time = max(images_hand_eye_rgb[0][0], images_hand_eye_depth[0][0]) / 1e9
+
 
     # Converting to numpy arrays
     print("Converting Data to Numpy Arrays and reshape")
@@ -229,7 +258,18 @@ def treat_folder(path_load, path_save, index_episode):
         name_file = f"{index_camera}.mp4"
         _path_folder = path_save / "videos" / str(index_episode)
         _path_folder.mkdir(exist_ok=True, parents=True)
-        make_video(data_img[key], name=str(_path_folder / name_file), fps=fps_dict[key])
+        if key.endswith("depth"):
+            is_color=False
+            img_np = data_img[key][1].img_np
+            img_np = img_np.ravel()
+
+            print("is_nan", np.any(np.isnan(img_np)))
+            img_np = np.clip(img_np, 0., 1.)
+        else:
+            is_color=True
+
+
+        make_video(data_img[key], name=str(_path_folder / name_file), fps=fps_dict[key], is_color=is_color)
 
     print("Get End-effector")
     # target_end_effector_poses = parser.get_messages("/cartesian_control")
@@ -298,8 +338,8 @@ def treat_folder(path_load, path_save, index_episode):
 
 
 def main():
-    PATH_TO_LOAD = pathlib.Path("/home/ros/humble/src/diffusion_policy/data/fake_puree_experiments/bags_replayed/").absolute()
-    PATH_SAVE = pathlib.Path("/home/ros/humble/src/diffusion_policy/data/fake_puree_experiments/diffusion_policy_dataset/").absolute()
+    PATH_TO_LOAD = pathlib.Path("/home/ros/humble/src/diffusion_policy/data/experiment_2/bags_kinesthetic/").absolute()
+    PATH_SAVE = pathlib.Path("/home/ros/humble/src/diffusion_policy/data/fake_puree_experiments/diffusion_policy_dataset_exp2/").absolute()
     PATH_SAVE.mkdir(exist_ok=True, parents=True)
     rosbag_paths = [file for file in PATH_TO_LOAD.iterdir() if file.name.startswith("rosbag")]
     for file in PATH_TO_LOAD.iterdir():
