@@ -196,6 +196,7 @@ class EnvControlWrapper:
         return self._jstate
 
     def set_jstate(self, msg):
+        print("Setting jstate", msg)
         self._jstate = msg
 
     def jpc_send_goal(self, jpos):
@@ -252,6 +253,7 @@ class EnvControlWrapperWithCameras(EnvControlWrapper):
                 # or self.camera_2_compressed_msg is None
                 # or self.camera_3_compressed_msg is None
                 or self.camera_0_compressed_msg is None) :
+            print(self._jstate is None, self.camera_1_compressed_msg is None, self.camera_0_compressed_msg is None)
             return None
         else:
             return self._compute_obs()
@@ -317,7 +319,7 @@ class DiffusionController(NodeParameterMixin,
         self.policy.reset()
 
         self.critic = critic
-        self.critic.eval().cuda()
+        # self.critic.eval().cuda()  # TODO
 
         # self.policy.num_inference_steps = 64
 
@@ -350,16 +352,18 @@ class DiffusionController(NodeParameterMixin,
 
     def policy_cb(self):
         obs = self.env.get_obs()
-        jnts_obs = self.env.get_joints_pos()
         if obs is None:
+            print("obs is None")
             return
+        jnts_obs = self.env.get_joints_pos()
 
-        delta = 5
+        delta = 2
         time_now = self.get_clock().now()
         if self.start_time is None:
             self.start_time = time_now
         dt = (time_now - self.start_time).nanoseconds / 1e9
         if dt <= delta and delta > 0:
+            print("dt <= delta and delta > 0")
             self.stacked_obs = self.env.reset()
             return
         elif delta == 0:
@@ -393,20 +397,26 @@ class DiffusionController(NodeParameterMixin,
                 for key, value in stacked_obs.items():
                     if key in ("eef", "mass"):
                         continue
-                    stacked_obs[key] = np.transpose(stacked_obs[key], (0, 1, 4, 2, 3))
-                    print(key, stacked_obs[key].shape)
+                    stacked_obs[key] = np.transpose(stacked_obs[key], (0, 1, 4, 2, 3)) / 255.
+                    print(key, stacked_obs[key][0])
 
                 # device transfer
                 obs_dict = dict_apply(stacked_obs,
                                       lambda x: torch.from_numpy(x).cuda())
 
-                print(dict_apply(stacked_obs, lambda x: x.shape))
                 # action_dict = self.policy.predict_action_from_several_samples(obs_dict, self.critic, )
+
+                # print(dict_apply(stacked_obs, lambda x: x.shape))
+                print("eef", stacked_obs["eef"])
+
                 action_dict = self.policy.predict_action(obs_dict)
                 np_action_dict = dict_apply(action_dict,
                                             lambda x: x.detach().to('cpu').numpy())
 
                 action = np_action_dict['action']
+
+                print("action", action)
+
                 metrics = np_action_dict['metrics']
                 wandb.log(metrics)
                 if action.shape[0] == 1:
@@ -443,8 +453,8 @@ class DiffusionController(NodeParameterMixin,
         J = np.array(self.kdl.compute_jacobian(jnts_obs))
         dq, *_ = np.linalg.lstsq(J, np.concatenate([dx, quat.as_rotation_vector(dq_rot)]))
 
-        if np.max(np.abs(dq)) < 1e-4:
-            return
+        # if np.max(np.abs(dq)) < 1e-4:
+        #     return
 
         print(self.current_command, jnts_obs)
         self.current_command = (0.3 * self.current_command + 0.7 * jnts_obs) + dq
@@ -466,20 +476,22 @@ def main(args=None):
     # ckpt_path = "/home/ros/humble/src/diffusion_policy/data/outputs/2024.01.31/19.22.29_train_diffusion_unet_image_franka_kitchen_lowdim/checkpoints/latest.ckpt"  # trained to also optimize actions
     # ckpt_path = "/home/ros/humble/src/diffusion_policy/data/outputs/2024.02.16/17.43.43_train_diffusion_unet_image_franka_kitchen_lowdim/checkpoints/latest.ckpt"  # trained to also optimize actions
     # ckpt_path = "/home/ros/humble/src/diffusion_policy/data/outputs/2024.03.04/15.39.58_train_diffusion_unet_image_franka_kitchen_lowdim/checkpoints/latest.ckpt"  # trained to also optimize actions
-    ckpt_path = "/home/ros/humble/src/diffusion_policy/data/outputs/2024.03.06/18.54.44_train_diffusion_unet_image_franka_kitchen_lowdim/checkpoints/latest.ckpt"  # trained to also optimize actions
+    # ckpt_path = "/home/ros/humble/src/diffusion_policy/data/outputs/2024.03.06/18.54.44_train_diffusion_unet_image_franka_kitchen_lowdim/checkpoints/latest.ckpt"  # trained to also optimize actions
+    ckpt_path = "/home/ros/humble/src/diffusion_policy/data/outputs/2024.03.07/17.56.19_train_diffusion_unet_image_franka_kitchen_lowdim_ok/checkpoints/latest.ckpt"  # basic, no reward, ddpm
     n_obs_steps = 2
     n_action_steps = 8
     path_bag_robot_description = "/home/ros/humble/src/read-db/rosbag2_2024_01_16-19_05_24/"
 
     payload = torch.load(open(ckpt_path, 'rb'), pickle_module=dill)
     cfg = payload['cfg']
+    cfg.task.dataset.dataset_path = "/home/ros/humble/src/diffusion_policy/data/fake_puree_experiments/diffusion_policy_dataset/"
     cls = hydra.utils.get_class(cfg._target_)
     workspace = cls(cfg)
     workspace: BaseWorkspace
     workspace.load_payload(payload, exclude_keys=None, include_keys=None)
-    _config_noise_scheduler = {**copy.deepcopy(cfg.policy.noise_scheduler)}
-    del _config_noise_scheduler["_target_"]
-    workspace.model.noise_scheduler = DDIMGuidedScheduler(coefficient_reward=0., **_config_noise_scheduler)
+    # _config_noise_scheduler = {**copy.deepcopy(cfg.policy.noise_scheduler)}
+    # del _config_noise_scheduler["_target_"]
+    # workspace.model.noise_scheduler = DDIMGuidedScheduler(coefficient_reward=0., **_config_noise_scheduler)
 
     # configure logging
     output_dir = HydraConfig.get().runtime.output_dir
@@ -499,14 +511,14 @@ def main(args=None):
     # print(workspace.model.normalizer["obs"].params_dict["offset"])
 
     workspace.model = workspace.model.cuda()
-    workspace.ema_model = workspace.ema_model.cuda()
+    # workspace.ema_model = workspace.ema_model.cuda()
     # workspace.model = torch.compile(workspace.model).cuda()
 
     args = None
     rclpy.init(args=args)
     try:
         nodes = [
-            DiffusionController(policy=workspace.ema_model,
+            DiffusionController(policy=workspace.model,
                                 critic=workspace.critic,
                                 n_obs_steps=n_obs_steps,
                                 n_action_steps=n_action_steps,
