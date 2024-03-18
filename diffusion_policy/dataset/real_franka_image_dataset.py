@@ -2,6 +2,7 @@ import random
 from typing import Dict, List
 import torch
 import numpy as np
+import quaternion as quat
 import zarr
 import os
 import shutil
@@ -275,6 +276,8 @@ class RealFrankaImageDataset(BaseImageDataset):
         else:
             action = action[:self.horizon]
 
+        action = self.compute_action_relative_to_initial_eef(action, action[0])
+
         torch_data = {
             'obs': dict_apply(obs_dict, torch.from_numpy),
             'action': torch.from_numpy(action),
@@ -282,6 +285,25 @@ class RealFrankaImageDataset(BaseImageDataset):
             # 'label': torch.from_numpy(labels),
         }
         return torch_data
+
+    @staticmethod
+    def compute_action_relative_to_initial_eef(action, initial_eef):
+        assert action.shape[-1] == 7
+
+        xyz_action = action[:, :3]
+        xyz_initial_eef = initial_eef[:3]
+        relative_xyz = xyz_action - xyz_initial_eef
+
+        # quaternion relative rotations
+        q_action = quat.from_float_array(action[:, 3:])
+        q_initial_eef = quat.from_float_array(initial_eef[3:])
+
+        q_relative = q_action * q_initial_eef.conjugate()
+
+        q_relative = quat.as_float_array(q_relative)
+
+        return np.concatenate([relative_xyz, q_relative], axis=-1)
+
 
 def zarr_resize_index_last_dim(zarr_arr, idxs):
     actions = zarr_arr[:]
