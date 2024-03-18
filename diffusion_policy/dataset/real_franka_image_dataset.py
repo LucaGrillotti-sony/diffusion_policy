@@ -209,8 +209,15 @@ class RealFrankaImageDataset(BaseImageDataset):
         normalizer = LinearNormalizer()
 
         # action
-        normalizer['action'] = SingleFieldLinearNormalizer.create_fit(
-            self.replay_buffer['action'])
+        # normalizer['action'] = SingleFieldLinearNormalizer.create_fit(
+        #     self.replay_buffer['action'])
+        all_sequences = [self[i] for i in range(self.__len__())]
+        all_relative_seq = list()
+        for _seq in all_sequences:
+            relative_seq = _seq['action']
+            all_relative_seq.append(relative_seq)
+        all_relative_actions = np.concatenate(all_relative_seq, axis=0)
+        normalizer['action'] = SingleFieldLinearNormalizer.create_fit(all_relative_actions)
         
         # obs
         for key in self.lowdim_keys:
