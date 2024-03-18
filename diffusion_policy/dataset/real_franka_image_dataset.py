@@ -317,6 +317,24 @@ class RealFrankaImageDataset(BaseImageDataset):
 
         return np.concatenate([relative_xyz, q_relative], axis=-1)
 
+    @staticmethod
+    def compute_absolute_action(relative_action, initial_eef):
+        assert relative_action.shape[-1] == 7
+
+        xyz_relative = relative_action[:, :3]
+        xyz_initial_eef = initial_eef[:3]
+        absolute_xyz = xyz_relative + xyz_initial_eef
+
+        # quaternion relative rotations
+        q_relative = quat.from_float_array(relative_action[:, 3:])
+        q_initial_eef = quat.from_float_array(initial_eef[3:])
+
+        q_absolute = q_relative * q_initial_eef
+
+        q_absolute = quat.as_float_array(q_absolute)
+
+        return np.concatenate([absolute_xyz, q_absolute], axis=-1)
+
 
 def zarr_resize_index_last_dim(zarr_arr, idxs):
     actions = zarr_arr[:]

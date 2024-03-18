@@ -20,7 +20,7 @@ from gym import spaces
 from hydra.core.hydra_config import HydraConfig
 
 from diffusion_policy.common.pytorch_util import dict_apply
-from diffusion_policy.dataset.real_franka_image_dataset import RandomFourierFeatures
+from diffusion_policy.dataset.real_franka_image_dataset import RandomFourierFeatures, RealFrankaImageDataset
 from diffusion_policy.env_runner.real_robot_runner import RealRobot
 from diffusion_policy.policy.diffusion_guided_ddim import DDIMGuidedScheduler
 from diffusion_policy.workspace.train_diffusion_transformer_lowdim_workspace import \
@@ -412,9 +412,11 @@ class DiffusionController(NodeParameterMixin,
                 np_action_dict = dict_apply(action_dict,
                                             lambda x: x.detach().to('cpu').numpy())
 
-                action = np_action_dict['action']
+                relative_actions = np_action_dict['action']
 
-                print("action", action)
+                print("action", relative_actions)
+                reference_action = obs_dict["eef"].detach().to('cpu').numpy()[0]
+                action = RealFrankaImageDataset.compute_absolute_action(relative_actions, reference_action)
 
                 metrics = np_action_dict['metrics']
                 wandb.log(metrics)
@@ -470,13 +472,9 @@ class DiffusionController(NodeParameterMixin,
     #     'diffusion_policy','config'))
 )
 def main(args=None):
-    # ckpt_path = "/home/ros/humble/src/diffusion_policy/data/outputs/2024.01.16/19.33.40_train_diffusion_unet_image_franka_kitchen_lowdim/checkpoints/latest.ckpt"
-    # ckpt_path = "/home/ros/humble/src/diffusion_policy/data/outputs/2024.01.26/12.15.56_train_diffusion_unet_image_franka_kitchen_lowdim/checkpoints/latest.ckpt"  # trained to also optimize actions
-    # ckpt_path = "/home/ros/humble/src/diffusion_policy/data/outputs/2024.01.31/19.22.29_train_diffusion_unet_image_franka_kitchen_lowdim/checkpoints/latest.ckpt"  # trained to also optimize actions
-    # ckpt_path = "/home/ros/humble/src/diffusion_policy/data/outputs/2024.02.16/17.43.43_train_diffusion_unet_image_franka_kitchen_lowdim/checkpoints/latest.ckpt"  # trained to also optimize actions
-    # ckpt_path = "/home/ros/humble/src/diffusion_policy/data/outputs/2024.03.04/15.39.58_train_diffusion_unet_image_franka_kitchen_lowdim/checkpoints/latest.ckpt"  # trained to also optimize actions
-    # ckpt_path = "/home/ros/humble/src/diffusion_policy/data/outputs/2024.03.06/18.54.44_train_diffusion_unet_image_franka_kitchen_lowdim/checkpoints/latest.ckpt"  # trained to also optimize actions
-    ckpt_path = "/home/ros/humble/src/diffusion_policy/data/outputs/2024.03.15/16.53.37_train_diffusion_unet_image_franka_kitchen_lowdim/checkpoints/latest.ckpt" 
+    # ckpt_path = "/home/ros/humble/src/diffusion_policy/data/outputs/2024.03.15/16.53.37_train_diffusion_unet_image_franka_kitchen_lowdim/checkpoints/latest.ckpt"
+    ckpt_path = "/home/ros/humble/src/diffusion_policy/data/outputs/2024.03.18/13.16.19_train_diffusion_unet_image_franka_kitchen_lowdim/checkpoints/latest.ckpt" # With relative actions
+
     n_obs_steps = 2
     n_action_steps = 8
     path_bag_robot_description = "/home/ros/humble/src/diffusion_policy/data/experiment_2/bags_kinesthetic/rosbag_00/"
