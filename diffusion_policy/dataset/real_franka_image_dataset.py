@@ -212,11 +212,16 @@ class RealFrankaImageDataset(BaseImageDataset):
         # normalizer['action'] = SingleFieldLinearNormalizer.create_fit(
         #     self.replay_buffer['action'])
         print('Fitting normalizer for action')
-        all_sequences = list()
-        for i in range(self.__len__()):
-            if i % 10 == 0:
-                print(f'Fitting normalizer for action: {i}/{self.__len__()}', end='\r')
-            all_sequences.append(self[i])
+        import multiprocessing as mp
+        # def f(i):
+        #     return self[i]
+        with mp.Pool(16) as pool:
+            all_sequences = pool.map(self.__getitem__, list(range(self.__len__())))
+        # all_sequences = list()
+        # for i in range(self.__len__()):
+        #     if i % 10 == 0:
+        #         print(f'Fitting normalizer for action: {i}/{self.__len__()}', end='\r')
+        #     all_sequences.append(self[i])
         # all_sequences = [self[i] for i in range(self.__len__())]
         all_relative_seq = list()
         for _seq in all_sequences:
