@@ -211,7 +211,13 @@ class RealFrankaImageDataset(BaseImageDataset):
         # action
         # normalizer['action'] = SingleFieldLinearNormalizer.create_fit(
         #     self.replay_buffer['action'])
-        all_sequences = [self[i] for i in range(self.__len__())]
+        print('Fitting normalizer for action')
+        all_sequences = list()
+        for i in range(self.__len__()):
+            if i % 10 == 0:
+                print(f'Fitting normalizer for action: {i}/{self.__len__()}', end='\r')
+            all_sequences.append(self[i])
+        # all_sequences = [self[i] for i in range(self.__len__())]
         all_relative_seq = list()
         for _seq in all_sequences:
             relative_seq = _seq['action']
