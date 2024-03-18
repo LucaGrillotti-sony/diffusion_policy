@@ -39,10 +39,10 @@ from diffusion_policy.common.pytorch_util import dict_apply, optimizer_to, custo
 from diffusion_policy.model.diffusion.ema_model import EMAModel
 from diffusion_policy.model.common.lr_scheduler import get_scheduler
 
-from dart_client.metrics import get_metric_writer
-from dartlib.dart2.run_config import init_run_config
+# from dart_client.metrics import get_metric_writer
+# from dartlib.dart2.run_config import init_run_config
 
-METRICS = get_metric_writer()
+# METRICS = get_metric_writer()
 
 OmegaConf.register_new_resolver("eval", eval, replace=True)
 
@@ -286,8 +286,8 @@ class TrainDiffusionUnetHybridWorkspace(BaseWorkspace):
                             # log of last step is combined with validation and rollout
                             wandb_run.log(step_log, step=self.global_step)
                             # bind logical timestamp "model_clock" to any metrics written under this context
-                            with METRICS.bind(model_clock=self.global_step):
-                                METRICS.write({key: float(value) for key, value in step_log.items()}, {"global_step": self.global_step})
+                            # with METRICS.bind(model_clock=self.global_step):
+                            #     METRICS.write({key: float(value) for key, value in step_log.items()}, {"global_step": self.global_step})
 
                             json_logger.log(step_log)
                             self.global_step += 1
@@ -394,9 +394,9 @@ class TrainDiffusionUnetHybridWorkspace(BaseWorkspace):
                 # end of epoch
                 # log of last step is combined with validation and rollout
                 wandb_run.log(step_log, step=self.global_step)
-                with METRICS.bind(model_clock=self.global_step):
-                    METRICS.write({key: float(value) for key, value in step_log.items()},
-                                  {"global_step": self.global_step})
+                # with METRICS.bind(model_clock=self.global_step):
+                #     METRICS.write({key: float(value) for key, value in step_log.items()},
+                #                   {"global_step": self.global_step})
                 json_logger.log(step_log)
                 self.global_step += 1
                 self.epoch += 1

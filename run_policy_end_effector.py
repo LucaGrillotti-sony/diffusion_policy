@@ -75,7 +75,7 @@ class EnvControlWrapper:
         self.observation_space = gym.spaces.Dict(
             {
                 'eef': gym.spaces.Box( -8, 8, shape=(7,), dtype=np.float32),
-                'camera_1': gym.spaces.Box(0, 1, shape=(3, 240, 320), dtype=np.float32),
+                # 'camera_1': gym.spaces.Box(0, 1, shape=(3, 240, 320), dtype=np.float32),
                 # 'camera_2': gym.spaces.Box(0, 1, shape=(3, 240, 320), dtype=np.float32),
                 # 'camera_3': gym.spaces.Box(0, 1, shape=(3, 240, 320), dtype=np.float32),
                 'camera_0': gym.spaces.Box(0, 1, shape=(3, 240, 320), dtype=np.float32),
@@ -214,7 +214,7 @@ class EnvControlWrapperWithCameras(EnvControlWrapper):
     def __init__(self, jpc_pub, n_obs_steps, n_action_steps, path_bag_robot_description, rff_encoder: RandomFourierFeatures, mass_goal=None):
         super().__init__(jpc_pub, n_obs_steps, n_action_steps)
 
-        self.camera_1_compressed_msg = None
+        # self.camera_1_compressed_msg = None
         # self.camera_2_compressed_msg = None
         # self.camera_3_compressed_msg = None
         self.camera_0_compressed_msg = None
@@ -249,11 +249,10 @@ class EnvControlWrapperWithCameras(EnvControlWrapper):
 
     def get_obs(self):
         if (self._jstate is None
-                or self.camera_1_compressed_msg is None
+                # or self.camera_1_compressed_msg is None
                 # or self.camera_2_compressed_msg is None
                 # or self.camera_3_compressed_msg is None
                 or self.camera_0_compressed_msg is None) :
-            print(self._jstate is None, self.camera_1_compressed_msg is None, self.camera_0_compressed_msg is None)
             return None
         else:
             return self._compute_obs()
@@ -261,14 +260,14 @@ class EnvControlWrapperWithCameras(EnvControlWrapper):
     def _compute_obs(self):
         pos_end_effector = end_effector_calculator(self._jstate, self._kdl)
 
-        camera_1_data = convert_image(cv_bridge=self.cv_bridge, msg_ros=self.camera_1_compressed_msg)
+        # camera_1_data = convert_image(cv_bridge=self.cv_bridge, msg_ros=self.camera_1_compressed_msg)
         # camera_2_data = convert_image(cv_bridge=self.cv_bridge, msg_ros=self.camera_2_compressed_msg)
         # camera_3_data = convert_image(cv_bridge=self.cv_bridge, msg_ros=self.camera_3_compressed_msg)
         camera_0_data = convert_image(cv_bridge=self.cv_bridge, msg_ros=self.camera_0_compressed_msg)
 
         return {
             'eef': pos_end_effector.astype(np.float32),
-            'camera_1': camera_1_data.astype(np.float32),
+            # 'camera_1': camera_1_data.astype(np.float32),
             # 'camera_2': camera_2_data.astype(np.float32),
             # 'camera_3': camera_3_data.astype(np.float32),
             'camera_0': camera_0_data.astype(np.float32),
@@ -285,10 +284,10 @@ class DiffusionController(NodeParameterMixin,
         jpc_topic='/ruckig_controller/commands',
         jstate_topic='/joint_states',
         cartesian_control_topic='/cartesian_control',
-        camera_0_topic='/azure06/rgb/image_raw/compressed',
+        # camera_0_topic='/azure06/rgb/image_raw/compressed',
         # camera_1_topic='/azure07/rgb/image_raw/compressed',
         # camera_2_topic='/azure08/rgb/image_raw/compressed',
-        camera_1_topic='/d405rs01/color/image_rect_raw/compressed',
+        camera_0_topic='/d405rs01/color/image_rect_raw/compressed',
     )
 
     def __init__(self, policy, critic, n_obs_steps, n_action_steps, path_bag_robot_description, rff_encoder, mass_goal, *args, node_name='robot_calibrator', **kwargs):
@@ -318,8 +317,8 @@ class DiffusionController(NodeParameterMixin,
         self.policy.eval().cuda()
         self.policy.reset()
 
-        self.critic = critic
-        # self.critic.eval().cuda()  # TODO
+        # self.critic = critic
+        # self.critic.eval().cuda()
 
         # self.policy.num_inference_steps = 64
 
@@ -340,8 +339,8 @@ class DiffusionController(NodeParameterMixin,
         # self.camera_2_sub = self.create_subscription(
         #     CompressedImage, self.camera_2_topic, lambda msg: self.env.set_camera_2_compressed_msg(msg), 10)
 
-        self.camera_1_sub = self.create_subscription(
-            CompressedImage, self.camera_1_topic, lambda msg: self.env.set_camera_1_compressed_msg(msg), 10)
+        # self.camera_1_sub = self.create_subscription(
+        #     CompressedImage, self.camera_1_topic, lambda msg: self.env.set_camera_1_compressed_msg(msg), 10)
 
 
     def jpc_send_goal(self, jpos):
@@ -477,14 +476,14 @@ def main(args=None):
     # ckpt_path = "/home/ros/humble/src/diffusion_policy/data/outputs/2024.02.16/17.43.43_train_diffusion_unet_image_franka_kitchen_lowdim/checkpoints/latest.ckpt"  # trained to also optimize actions
     # ckpt_path = "/home/ros/humble/src/diffusion_policy/data/outputs/2024.03.04/15.39.58_train_diffusion_unet_image_franka_kitchen_lowdim/checkpoints/latest.ckpt"  # trained to also optimize actions
     # ckpt_path = "/home/ros/humble/src/diffusion_policy/data/outputs/2024.03.06/18.54.44_train_diffusion_unet_image_franka_kitchen_lowdim/checkpoints/latest.ckpt"  # trained to also optimize actions
-    ckpt_path = "/home/ros/humble/src/diffusion_policy/data/outputs/2024.03.07/17.56.19_train_diffusion_unet_image_franka_kitchen_lowdim_ok/checkpoints/latest.ckpt"  # basic, no reward, ddpm
+    ckpt_path = "/home/ros/humble/src/diffusion_policy/data/outputs/2024.03.15/16.53.37_train_diffusion_unet_image_franka_kitchen_lowdim/checkpoints/latest.ckpt" 
     n_obs_steps = 2
     n_action_steps = 8
-    path_bag_robot_description = "/home/ros/humble/src/read-db/rosbag2_2024_01_16-19_05_24/"
+    path_bag_robot_description = "/home/ros/humble/src/diffusion_policy/data/experiment_2/bags_kinesthetic/rosbag_00/"
 
     payload = torch.load(open(ckpt_path, 'rb'), pickle_module=dill)
     cfg = payload['cfg']
-    cfg.task.dataset.dataset_path = "/home/ros/humble/src/diffusion_policy/data/fake_puree_experiments/diffusion_policy_dataset/"
+    # cfg.task.dataset.dataset_path = "/home/ros/humble/src/diffusion_policy/data/fake_puree_experiments/diffusion_policy_dataset/"
     cls = hydra.utils.get_class(cfg._target_)
     workspace = cls(cfg)
     workspace: BaseWorkspace

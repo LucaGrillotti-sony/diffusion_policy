@@ -95,14 +95,15 @@ def convert_image(cv_bridge: CvBridge, msg_ros, is_depth=False):
         img_np = cv_bridge.imgmsg_to_cv2(msg_ros)
     else:
         img_np = cv_bridge.compressed_imgmsg_to_cv2(msg_ros, "passthrough")
-    print(msg_ros.header) 
+    # print(msg_ros.header) 
     # img_np = cv_bridge.imgmsg_to_cv2(msg_ros, desired_encoding='32FC1')
 
 
     if img_np is None:
         return None
     if is_depth:
-        print("DEPTH", img_np.shape)
+        # print("DEPTH", img_np.shape)
+        ...
     img_np = cv2.resize(img_np, (320, 240), interpolation=cv2.INTER_AREA)
     return img_np
 
@@ -152,7 +153,7 @@ def make_video(list_images: List[ImageWithTimestamp], name, fps, is_color=True):
 
             img_np = np.clip(original_image, 0, 400)
 
-            print(img_np.shape)
+            # print(img_np.shape)
             img_np = (img_np - np.min(img_np)) / (np.max(img_np) - np.min(img_np))
             img_np = cv2.copyMakeBorder(img_np, 1, 1, 1, 1, cv2.BORDER_DEFAULT)
             mask = original_image_with_border == 0.
@@ -209,7 +210,7 @@ def treat_folder(path_load, path_save, index_episode):
     # images_front_camera = parser.get_messages("/d405rs01/color/image_rect_raw/compressed")
     cv_bridge = CvBridge()
     # print(images_azure_06)
-
+    print("BOUH", path_load)
     robot_description = get_robot_description(path_load)
     kdl = KDLSolver(robot_description)
     kdl.set_kinematic_chain('panda_link0', 'panda_hand')
@@ -228,13 +229,14 @@ def treat_folder(path_load, path_save, index_episode):
 
 
     # Converting to numpy arrays
-    print("Converting Data to Numpy Arrays and reshape")
+    #print("Converting Data to Numpy Arrays and reshape")
     data_img = dict()
     # data_img["azure_06"] = get_list_data_img(cv_bridge, images_azure_06, time_offset=start_time)
     # data_img["azure_07"] = get_list_data_img(cv_bridge, images_azure_07, time_offset=start_time)
     # data_img["azure_08"] = get_list_data_img(cv_bridge, images_azure_08, time_offset=start_time)
     data_img["images_hand_eye_rgb"] = get_list_data_img(cv_bridge, images_hand_eye_rgb, time_offset=start_time)
     data_img["images_hand_eye_depth"] = get_list_data_img(cv_bridge, images_hand_eye_depth, time_offset=start_time, is_depth=True)
+
 
     fps_dict = dict()
     # fps_dict["azure_06"] = 30

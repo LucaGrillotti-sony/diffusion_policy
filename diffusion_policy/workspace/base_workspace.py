@@ -10,8 +10,8 @@ import torch
 import threading
 
 
-from dartlib.dart.artifact import get_artifact_writer, Artifact
-ARTIFACTS = get_artifact_writer()
+# from dartlib.dart.artifact import get_artifact_writer, Artifact
+# ARTIFACTS = get_artifact_writer()
 
 
 class BaseWorkspace:
@@ -73,7 +73,7 @@ class BaseWorkspace:
         else:
             torch.save(payload, path.open('wb'), pickle_module=dill)
         
-        ARTIFACTS.write(path=path.name, artifact=Artifact(body=dill.dumps(payload)))
+        # ARTIFACTS.write(path=path.name, artifact=Artifact(body=dill.dumps(payload)))
         return str(path.absolute())
     
     def get_checkpoint_path(self, tag='latest'):
