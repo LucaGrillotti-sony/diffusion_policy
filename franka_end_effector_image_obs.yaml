@@ -126,10 +126,10 @@ policy:
 #          - 240
 #          - 320
 #        type: rgb
-      eef:
-        shape:
-          - 7
-        type: low_dim
+#      eef:
+#        shape:
+#          - 7
+#        type: low_dim
   # noise_scheduler:
   #   _target_: diffusers.schedulers.scheduling_ddim.DDIMScheduler
   #   num_train_timesteps: 100
@@ -188,10 +188,10 @@ critic:
 #        shape:
 #          - 256 # after RFF
 #        type: low_dim
-      eef:
-        shape:
-          - 7
-        type: low_dim
+#      eef:
+#        shape:
+#          - 7
+#        type: low_dim
   obs_as_global_cond: true
   gamma: 0.99
 
@@ -234,10 +234,10 @@ task:
 #            - 240
 #            - 320
 #          type: rgb
-        eef:
-          shape:
-            - 7
-          type: low_dim
+#        eef:
+#          shape:
+#            - 7
+#          type: low_dim
       label:
         shape:
           - 1
