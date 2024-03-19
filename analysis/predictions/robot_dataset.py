@@ -91,42 +91,53 @@ def get_one_episode(dataset: RealFrankaImageDataset, n_action_steps: int, n_late
     sampler = dataset.sampler
     replay_buffer = dataset.replay_buffer
     episode_ends = replay_buffer.episode_ends[:]
+    print("episode_ends", episode_ends)
 
     index_start = episode_ends[index_episode]
     index_end = episode_ends[index_episode + 1]
 
     index_sample_start = index_start
     index_sample_end = index_start + n_obs_steps + n_action_steps
-    while index_sample_end < index_end:
-        obs = replay_buffer['obs']
-        new_obs = {}
-        for key in obs.keys():
-            if key in ("camera_0", "camera_1"):
-                new_obs[key] = obs[key][index_sample_start:index_sample_start + n_obs_steps] / 255.0
-            else:
-                new_obs[key] = obs[key][index_sample_start:index_sample_start + n_obs_steps]
 
-        yield {
+    keys = ("camera_0",)
+    print("index_sample end", index_sample_end, index_end)
+    one_episode = list()
+    while index_sample_end < index_end:
+        new_obs = {}
+        for key in keys:
+            if key in ("camera_0", "camera_1"):
+                new_obs[key] = replay_buffer[key][index_sample_start:index_sample_start + n_obs_steps] / 255.0
+            else:
+                new_obs[key] = replay_buffer[key][index_sample_start:index_sample_start + n_obs_steps]
+
+        one_episode.append({
             'obs': new_obs,
             'action': replay_buffer['action'],
-        }
+        })
 
         index_sample_start += n_action_steps
         index_sample_end += n_action_steps
+    print(replay_buffer["camera_0"][index_start:index_end].shape)
+    return {
+        "obs": {"camera_0": np.transpose(replay_buffer["camera_0"][index_start:index_end], (0, 3, 1, 2)) / 255.0,},
+        "action": replay_buffer['action'][index_start:index_end],
+    }
 
 
 def main():
     # ckpt_path = "/home/lucagrillotti/ros/humble/src/diffusion_policy/results/13.09.31_train_diffusion_unet_lowdim_kitchen_lowdim/checkpoints/latest.ckpt"
     # ckpt_path = "/home/lucagrillotti/projects/diffusion_policy/data/outputs/2023.12.21/12.21_12.11.57_end_effector_control/checkpoints/latest.ckpt"
     # ckpt_path = "/home/lucagrillotti/projects/diffusion_policy/data/outputs/2023.12.22/17.22.09_train_diffusion_unet_lowdim_kitchen_lowdim/checkpoints/latest.ckpt"
-    ckpt_path = "/home/ros/humble/src/diffusion_policy/data/outputs/2024.03.07/17.56.19_train_diffusion_unet_image_franka_kitchen_lowdim_ok/checkpoints/latest.ckpt"  # basic, no reward, ddpm
+    # ckpt_path = "/home/ros/humble/src/diffusion_policy/data/outputs/2024.03.07/17.56.19_train_diffusion_unet_image_franka_kitchen_lowdim_ok/checkpoints/latest.ckpt"  # basic, no reward, ddpm
+    ckpt_path = "/home/ros/humble/src/diffusion_policy/data/outputs/2024.03.18/13.16.19_train_diffusion_unet_image_franka_kitchen_lowdim/checkpoints/latest.ckpt"
+    
     # dataset_dir = "/data/kitchen/kitchen_demos_multitask/cartesian_control/"
     # dataset_dir = "/home/lucagrillotti/projects/diffusion_policy/data/kitchen/kitchen_demos_multitask/cartesian_control_all"
-    dataset_dir = "/home/ros/humble/src/diffusion_policy/data/fake_puree_experiments/diffusion_policy_dataset/"
+    dataset_dir = "/home/ros/humble/src/diffusion_policy/data/fake_puree_experiments/diffusion_policy_dataset_exp2"
 
     payload = torch.load(open(ckpt_path, 'rb'), pickle_module=dill)
     cfg = payload['cfg']
-    cfg.task.dataset.dataset_path = "/home/ros/humble/src/diffusion_policy/data/fake_puree_experiments/diffusion_policy_dataset/"
+    # cfg.task.dataset.dataset_path = dataset_dir
     dataset: RealFrankaImageDataset = hydra.utils.instantiate(cfg.task.dataset)
     cls = hydra.utils.get_class(cfg._target_)
     workspace = cls(cfg)
@@ -135,7 +146,7 @@ def main():
     policy = workspace.model
 
     # list_episodes = get_dataset(dataset_dir)
-    one_episode = next(get_one_episode(dataset, 8, 0, 2, 0))
+    one_episode = get_one_episode(dataset, 8, 0, 2, 0)
 
     sequence_observations = one_episode["obs"]
     sequence_actions = one_episode["action"]
@@ -145,33 +156,39 @@ def main():
     n_obs_steps = 2
 
     # index_start = 60  # TODO - Test with several
-    print("length seq", len(sequence_observations))
+    num_obs = len(sequence_observations["camera_0"])
+
+    print("length seq", num_obs)
     # stacked_true_actions = sequence_actions[index_start:index_start+n_action_steps]
 
     num_dim_actions = sequence_actions.shape[1]
     color = plt.cm.rainbow(np.linspace(0, 1, num_dim_actions))
 
-    for index_start in range(n_obs_steps - 1, len(sequence_observations) - n_obs_steps, n_action_steps):
+    for index_start in range(n_obs_steps - 1, num_obs - n_obs_steps, n_action_steps):
         print(index_start)
-        stacked_obs = sequence_observations[index_start - n_obs_steps + 1:index_start + 1]
+        stacked_obs = dict_apply(sequence_observations, lambda x: x[index_start - n_obs_steps + 1:index_start + 1])
 
+        initial_eef = sequence_actions[index_start]
 
         with torch.no_grad():
-            np_obs_dict = {
-                'obs': stacked_obs.reshape(1, *stacked_obs.shape).astype(np.float32)
-            }
+            np_obs_dict = dict_apply(stacked_obs, lambda x: x.reshape(1, *x.shape).astype(np.float32))
 
             # device transfer
             obs_dict = dict_apply(np_obs_dict,
                                   lambda x: torch.from_numpy(x).cuda())
+            
             action_dict = policy.predict_action(obs_dict)
             np_action_dict = dict_apply(action_dict,
                                         lambda x: x.detach().to('cpu').numpy())
 
             predicted_actions = np_action_dict['action'].squeeze()
+            print("SHAPES", predicted_actions.shape, initial_eef.shape)
 
+            predicted_actions = RealFrankaImageDataset.compute_absolute_action(predicted_actions, initial_eef)
+            print("predicted_actions", predicted_actions.shape)
         for index_action, c in enumerate(color):
-            plt.plot(np.arange(len(predicted_actions)), predicted_actions[:, index_action], c=c, linestyle="dotted")
+            plt.plot(np.arange(len(predicted_actions)) + index_start, predicted_actions[:, index_action], c=c, linestyle="dotted")
+            plt.plot(np.arange(len(predicted_actions)) + index_start, sequence_actions[index_start:index_start+n_action_steps, index_action], c=c)
     plt.savefig("predictions.png")
     # plt.show()
 
