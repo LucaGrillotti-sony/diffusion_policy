@@ -294,7 +294,9 @@ class RealFrankaImageDataset(BaseImageDataset):
         else:
             action = action[:self.horizon]
 
+        print("ABSOLUTE ACTION", action)
         action = self.compute_action_relative_to_initial_eef(action, action[0])
+        print("RELATIVE ACTION", action)
 
         torch_data = {
             'obs': dict_apply(obs_dict, torch.from_numpy),
@@ -330,13 +332,20 @@ class RealFrankaImageDataset(BaseImageDataset):
         xyz_initial_eef = initial_eef[:3]
         absolute_xyz = xyz_relative + xyz_initial_eef
 
+        rot_relative = relative_action[:, 3:]
+        rot_relative = rot_relative / np.linalg.norm(rot_relative, axis=1).reshape(-1, 1)
+        # print("rot_relative.shape", rot_relative.shape, np.linalg.norm(rot_relative, axis=1).reshape(-1, 1).shape)
+
         # quaternion relative rotations
-        q_relative = quat.from_float_array(relative_action[:, 3:])
+        q_relative = quat.from_float_array(rot_relative)
         q_initial_eef = quat.from_float_array(initial_eef[3:])
 
         q_absolute = q_relative * q_initial_eef
 
         q_absolute = quat.as_float_array(q_absolute)
+
+        print("xyz_relative", xyz_relative)
+        # print("q_absolute", q_absolute, np.linalg.norm(q_absolute, axis=1))
 
         return np.concatenate([absolute_xyz, q_absolute], axis=-1)
 

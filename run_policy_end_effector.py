@@ -384,7 +384,8 @@ class DiffusionController(NodeParameterMixin,
         pos_x = pos[:3]
         pos_q = pos[3:]
 
-        # cur_pos = se3(*self.kdl.compute_fk(jnts_obs))
+        # keys_obs = ("camera_0", )
+        keys_obs = ("camera_0", "eef", )
 
         if self.env.queue_actions.empty():
             self.get_logger().info("Adding actions to buffer")
@@ -399,8 +400,15 @@ class DiffusionController(NodeParameterMixin,
                     stacked_obs[key] = np.transpose(stacked_obs[key], (0, 1, 4, 2, 3)) / 255.
                     print(key, stacked_obs[key][0])
 
+                filtered_stacked_obs = dict()
+                for key, value in stacked_obs.items():
+                    if key in keys_obs:
+                        filtered_stacked_obs[key] = stacked_obs[key]
+                    else:
+                        ...
+
                 # device transfer
-                obs_dict = dict_apply(stacked_obs,
+                obs_dict = dict_apply(filtered_stacked_obs,
                                       lambda x: torch.from_numpy(x).cuda())
 
                 # action_dict = self.policy.predict_action_from_several_samples(obs_dict, self.critic, )
@@ -414,17 +422,17 @@ class DiffusionController(NodeParameterMixin,
 
                 relative_actions = np_action_dict['action']
 
-                print("action", relative_actions)
-                reference_action = obs_dict["eef"].detach().to('cpu').numpy()[0]
-                action = RealFrankaImageDataset.compute_absolute_action(relative_actions, reference_action)
-
                 metrics = np_action_dict['metrics']
                 wandb.log(metrics)
-                if action.shape[0] == 1:
-                    array_dq = action.reshape(*action.shape[1:])
-                else:
-                    array_dq= action
-                self.env.push_actions([_dq for _dq in array_dq])
+                if relative_actions.shape[0] == 1:
+                    relative_actions = relative_actions.reshape(*relative_actions.shape[1:])
+
+                reference_action = stacked_obs["eef"][0, 0, :]
+                absolute_actions = RealFrankaImageDataset.compute_absolute_action(relative_actions, reference_action)
+
+
+                self.env.push_actions([_dq for _dq in absolute_actions])
+
                 # self.env.push_actions([array_dq[0]])
 
         action_to_execute = self.env.get_from_queue_actions()
@@ -472,8 +480,8 @@ class DiffusionController(NodeParameterMixin,
     #     'diffusion_policy','config'))
 )
 def main(args=None):
-    # ckpt_path = "/home/ros/humble/src/diffusion_policy/data/outputs/2024.03.15/16.53.37_train_diffusion_unet_image_franka_kitchen_lowdim/checkpoints/latest.ckpt"
-    ckpt_path = "/home/ros/humble/src/diffusion_policy/data/outputs/2024.03.18/13.16.19_train_diffusion_unet_image_franka_kitchen_lowdim/checkpoints/latest.ckpt" # With relative actions
+    ckpt_path = "/home/ros/humble/src/diffusion_policy/data/outputs/2024.03.18/11.48.28_train_diffusion_unet_image_franka_kitchen_lowdim/checkpoints/latest.ckpt" # With relative actions + EEF absolute inputs (for testing only)
+    # ckpt_path = "/home/ros/humble/src/diffusion_policy/data/outputs/2024.03.18/13.16.19_train_diffusion_unet_image_franka_kitchen_lowdim/checkpoints/latest.ckpt" # With relative actions
 
     n_obs_steps = 2
     n_action_steps = 8
