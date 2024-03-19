@@ -39,10 +39,10 @@ from diffusion_policy.common.pytorch_util import dict_apply, optimizer_to, custo
 from diffusion_policy.model.diffusion.ema_model import EMAModel
 from diffusion_policy.model.common.lr_scheduler import get_scheduler
 
-from dart_client.metrics import get_metric_writer
-from dartlib.dart2.run_config import init_run_config
+# from dart_client.metrics import get_metric_writer
+# from dartlib.dart2.run_config import init_run_config
 
-METRICS = get_metric_writer()
+# METRICS = get_metric_writer()
 
 OmegaConf.register_new_resolver("eval", eval, replace=True)
 
@@ -77,11 +77,12 @@ class TrainDiffusionUnetHybridWorkspace(BaseWorkspace):
         self.eps_lagrange_constraint_mse_predictions = cfg.eps_lagrange_constraint_mse_predictions
 
         # Critic networks and optimizer: todo
-        self.critic: DoubleCritic = hydra.utils.instantiate(cfg.critic, obs_feature_dim=self.model.obs_feature_dim)
-        self.critic_optimizer = hydra.utils.instantiate(
-            cfg.critic_optimizer, params=self.critic.parameters()
-        )
-        self.critic_target = copy.deepcopy(self.critic)
+        # self.critic: DoubleCritic = hydra.utils.instantiate(cfg.critic, obs_feature_dim=self.model.obs_feature_dim)
+        # self.critic_optimizer = hydra.utils.instantiate(
+        #     cfg.critic_optimizer, params=self.critic.parameters()
+        # )
+        # self.critic_target = copy.deepcopy(self.critic)
+        self.critic = None
 
         # configure training state
         self.global_step = 0
@@ -90,13 +91,13 @@ class TrainDiffusionUnetHybridWorkspace(BaseWorkspace):
         NUM_CLASSES = 3
         IN_FEATURES_CLASSIFIER = 391
 
-        self.classifier = ClassifierStageScooping(in_features=IN_FEATURES_CLASSIFIER, number_of_classes=NUM_CLASSES)
-        self.classifier = self.classifier.to(cfg.training.device)
-        self.classifier_optimizer = torch.optim.AdamW(self.classifier.parameters(),
-                                                      betas=(0.95, 0.999),
-                                                      eps=1.0e-08,
-                                                      lr=0.0001,
-                                                      weight_decay=1.0e-06)
+        # self.classifier = ClassifierStageScooping(in_features=IN_FEATURES_CLASSIFIER, number_of_classes=NUM_CLASSES)
+        # self.classifier = self.classifier.to(cfg.training.device)
+        # self.classifier_optimizer = torch.optim.AdamW(self.classifier.parameters(),
+        #                                               betas=(0.95, 0.999),
+        #                                               eps=1.0e-08,
+        #                                               lr=0.0001,
+        #                                               weight_decay=1.0e-06)
 
 
     def run(self):
@@ -121,10 +122,10 @@ class TrainDiffusionUnetHybridWorkspace(BaseWorkspace):
         val_dataloader = DataLoader(val_dataset, **cfg.val_dataloader)
 
         self.model.set_normalizer(normalizer)
-        self.critic.set_normalizer(normalizer)
+        # self.critic.set_normalizer(normalizer)
         if cfg.training.use_ema:
             self.ema_model.set_normalizer(normalizer)
-        self.critic_target.set_normalizer(normalizer)
+        # self.critic_target.set_normalizer(normalizer)
 
         # configure lr scheduler
         lr_scheduler = get_scheduler(
@@ -145,9 +146,9 @@ class TrainDiffusionUnetHybridWorkspace(BaseWorkspace):
             ema = hydra.utils.instantiate(
                 cfg.ema,
                 model=self.ema_model)
-        critic_target = hydra.utils.instantiate(
-            cfg.critic_target,
-            model=self.critic_target)
+        # critic_target = hydra.utils.instantiate(
+        #     cfg.critic_target,
+        #     model=self.critic_target)
 
 
         # configure env
@@ -182,11 +183,11 @@ class TrainDiffusionUnetHybridWorkspace(BaseWorkspace):
         device = torch.device(cfg.training.device)
         self.model.to(device)
         self.lagrange_parameter.to(device)
-        self.critic.to(device)
+        # self.critic.to(device)
 
         if self.ema_model is not None:
             self.ema_model.to(device)
-        self.critic_target.to(device)
+        # self.critic_target.to(device)
         optimizer_to(self.optimizer, device)
         optimizer_to(self.critic_optimizer, device)
         #  optimizer_to(self.lagrange_optimizer, device)
@@ -234,35 +235,39 @@ class TrainDiffusionUnetHybridWorkspace(BaseWorkspace):
                             self.optimizer.zero_grad()
                             lr_scheduler.step()
 
-                        raw_loss_lagrange, _metrics_lagrange = self.compute_loss_lagrange(sample_actions=_other_data_model["sample_actions"], batch=batch)
-                        self.update_lagrange(raw_loss_lagrange)
+                        # mse_predictions_train = F.mse_loss(_other_data_model["sample_actions"]['action_pred'], batch['action']).detach().item()
+                        # _metrics_lagrange = {"mse_training": mse_predictions_train}
+                        # raw_loss_lagrange, _metrics_lagrange = self.compute_loss_lagrange(sample_actions=_other_data_model["sample_actions"], batch=batch)
+                        # # self.update_lagrange(raw_loss_lagrange)
 
-                        # Update classifier
-                        labels = batch['label']
-                        shape_labels = labels.shape
-                        nobs_features = _other_data_model['nobs_features'].clone().detach()
-                        nobs_features = nobs_features.view(*shape_labels, -1)
-                        loss_classifier = self.classifier.compute_loss(nobs_features, labels)
-                        loss_classifier.backward()
-                        self.classifier_optimizer.step()
-                        self.classifier_optimizer.zero_grad()
+                        # # Update classifier
+                        # labels = batch['label']
+                        # shape_labels = labels.shape
+                        # nobs_features = _other_data_model['nobs_features'].clone().detach()
+                        # nobs_features = nobs_features.view(*shape_labels, -1)
+                        # loss_classifier = self.classifier.compute_loss(nobs_features, labels)
+                        # loss_classifier.backward()
+                        # self.classifier_optimizer.step()
+                        # self.classifier_optimizer.zero_grad()
 
-                        # Update critic
-                        # print(batch['action'].shape, nobs_features_flat.shape)
-                        rewards = self.reward_function(nobs_features=nobs_features, actions=batch['action'])
-                        loss_critic, metrics_critic = self.critic.compute_critic_loss(batch,
-                                                                                      nobs_features=_other_data_model['nobs_features'],
-                                                                                      critic_target=self.critic_target,
-                                                                                      policy=self.model,
-                                                                                      rewards=rewards,)
-                        loss_critic.backward()
-                        self.critic_optimizer.step()
-                        self.critic_optimizer.zero_grad()
+                        # # Update critic
+                        # # print(batch['action'].shape, nobs_features_flat.shape)
+                        # rewards = self.reward_function(nobs_features=nobs_features, actions=batch['action'])
+                        # loss_critic, metrics_critic = self.critic.compute_critic_loss(batch,
+                        #                                                               nobs_features=_other_data_model['nobs_features'],
+                        #                                                               critic_target=self.critic_target,
+                        #                                                               policy=self.model,
+                        #                                                               rewards=rewards,)
+                        # loss_critic.backward()
+                        # self.critic_optimizer.step()
+                        # self.critic_optimizer.zero_grad()
 
-                        # update ema and critic target
+                        # # update critic target
+                        # critic_target.step(self.critic)
+
+                        # update ema
                         if cfg.training.use_ema:
                             ema.step(self.model)
-                        critic_target.step(self.critic)
 
                         # logging
                         raw_loss_cpu = raw_loss_actor.item()
@@ -273,10 +278,10 @@ class TrainDiffusionUnetHybridWorkspace(BaseWorkspace):
                             'global_step': self.global_step,
                             'epoch': self.epoch,
                             'lr': lr_scheduler.get_last_lr()[0],
-                            "loss_classifier": loss_classifier.item(),
+                            # "loss_classifier": loss_classifier.item(),
                             **_metrics_training,
-                            **_metrics_lagrange,
-                            **metrics_critic,
+                            # **_metrics_lagrange,
+                            # **metrics_critic,
                         }
 
                         is_last_batch = (batch_idx == (len(train_dataloader)-1))
@@ -284,8 +289,8 @@ class TrainDiffusionUnetHybridWorkspace(BaseWorkspace):
                             # log of last step is combined with validation and rollout
                             wandb_run.log(step_log, step=self.global_step)
                             # bind logical timestamp "model_clock" to any metrics written under this context
-                            with METRICS.bind(model_clock=self.global_step):
-                                METRICS.write({key: float(value) for key, value in step_log.items()}, {"global_step": self.global_step})
+                            # with METRICS.bind(model_clock=self.global_step):
+                            #     METRICS.write({key: float(value) for key, value in step_log.items()}, {"global_step": self.global_step})
 
                             json_logger.log(step_log)
                             self.global_step += 1
@@ -321,15 +326,17 @@ class TrainDiffusionUnetHybridWorkspace(BaseWorkspace):
                             for batch_idx, batch in enumerate(tepoch):
                                 batch = dict_apply(batch, lambda x: x.to(device, non_blocking=True))
                                 loss_actor, _metrics, _other_data_model = self.model.compute_loss(batch, sigmoid_lagrange=self.get_sigmoid_lagrange(detach=True), critic_network=self.critic)
-                                labels = batch['label']
-                                shape_labels = labels.shape
-                                nobs_features_flat = _other_data_model['nobs_features'].detach()
-                                nobs_features_flat = nobs_features_flat.view(*shape_labels, -1)
-                                val_loss_classifier = self.classifier.compute_loss(nobs_features_flat, labels)
-                                accuracy_classifier = self.classifier.accuracy(nobs_features_flat, labels)
+                                # labels = batch['label']
+                                # shape_labels = labels.shape
+                                # nobs_features_flat = _other_data_model['nobs_features'].detach()
+                                # nobs_features_flat = nobs_features_flat.view(*shape_labels, -1)
+                                # val_loss_classifier = self.classifier.compute_loss(nobs_features_flat, labels)
+                                # accuracy_classifier = self.classifier.accuracy(nobs_features_flat, labels)
 
                                 val_losses.append(loss_actor)
-                                list_metrics.append({**_metrics, "val_loss_classifier": val_loss_classifier.item(), "val_accuracy_classifier": accuracy_classifier.item()})
+                                # list_metrics.append({**_metrics, "val_loss_classifier": val_loss_classifier.item(), "val_accuracy_classifier": accuracy_classifier.item()})
+                                list_metrics.append(_metrics)
+
                                 if (cfg.training.max_val_steps is not None) \
                                     and batch_idx >= (cfg.training.max_val_steps-1):
                                     break
@@ -390,9 +397,9 @@ class TrainDiffusionUnetHybridWorkspace(BaseWorkspace):
                 # end of epoch
                 # log of last step is combined with validation and rollout
                 wandb_run.log(step_log, step=self.global_step)
-                with METRICS.bind(model_clock=self.global_step):
-                    METRICS.write({key: float(value) for key, value in step_log.items()},
-                                  {"global_step": self.global_step})
+                # with METRICS.bind(model_clock=self.global_step):
+                #     METRICS.write({key: float(value) for key, value in step_log.items()},
+                #                   {"global_step": self.global_step})
                 json_logger.log(step_log)
                 self.global_step += 1
                 self.epoch += 1

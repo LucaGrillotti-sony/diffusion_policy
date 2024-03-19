@@ -227,23 +227,23 @@ def create_zarr_action_dataset(dataset_path: str,):
         if not _file_path_eef.exists():
             print(f"{_file_path_eef} does not exist, skipping...")
             continue
-        if not _file_path_annotations.exists():
-            print(f"{_file_path_annotations} does not exist, skipping...")
-            continue
-        if not _file_path_mass.exists():
-            print(f"{_file_path_mass} does not exist, skipping...")
-            continue
+        # if not _file_path_annotations.exists():
+        #     print(f"{_file_path_annotations} does not exist, skipping...")
+        #     continue
+        # if not _file_path_mass.exists():
+        #     print(f"{_file_path_mass} does not exist, skipping...")
+        #     continue
         array_actions = np.load(_file_path)
         array_eef = np.load(_file_path_eef)
-        array_annotations = np.load(_file_path_annotations)
-        mass_scooped = np.loadtxt(_file_path_mass).item()
-        array_masses = np.full_like(array_annotations, fill_value=mass_scooped)
+        # array_annotations = np.load(_file_path_annotations)
+        # mass_scooped = np.loadtxt(_file_path_mass).item()
+        # array_masses = np.full_like(array_annotations, fill_value=mass_scooped)
 
         data_dict = {
             'action': array_actions,
             'eef': array_eef,
-            'label': array_annotations,
-            'mass': array_masses,
+            # 'label': array_annotations,
+            # 'mass': array_masses,
         }
 
         replay_buffer.add_episode(
@@ -253,7 +253,7 @@ def create_zarr_action_dataset(dataset_path: str,):
 
 def test_real_data_conversion():
     # dataset_path = pathlib.Path("/home/lucagrillotti/ros/humble/src/diffusion_policy/data/test_dataset/")
-    dataset_path = pathlib.Path("/home/lucagrillotti/ros/humble/src/diffusion_policy/data/fake_puree_experiments/diffusion_policy_dataset/")
+    dataset_path = pathlib.Path("/home/ros/humble/src/diffusion_policy/data/fake_puree_experiments/diffusion_policy_dataset_exp2/")
     output_path = dataset_path / "replay_buffer_final.zarr.zip"
     assert output_path.suffix == ".zip"
     cv2.setNumThreads(1)

@@ -20,7 +20,7 @@ from gym import spaces
 from hydra.core.hydra_config import HydraConfig
 
 from diffusion_policy.common.pytorch_util import dict_apply
-from diffusion_policy.dataset.real_franka_image_dataset import RandomFourierFeatures
+from diffusion_policy.dataset.real_franka_image_dataset import RandomFourierFeatures, RealFrankaImageDataset
 from diffusion_policy.env_runner.real_robot_runner import RealRobot
 from diffusion_policy.policy.diffusion_guided_ddim import DDIMGuidedScheduler
 from diffusion_policy.workspace.train_diffusion_transformer_lowdim_workspace import \
@@ -75,11 +75,11 @@ class EnvControlWrapper:
         self.observation_space = gym.spaces.Dict(
             {
                 'eef': gym.spaces.Box( -8, 8, shape=(7,), dtype=np.float32),
-                'camera_1': gym.spaces.Box(0, 1, shape=(3, 240, 320), dtype=np.float32),
+                # 'camera_1': gym.spaces.Box(0, 1, shape=(3, 240, 320), dtype=np.float32),
                 # 'camera_2': gym.spaces.Box(0, 1, shape=(3, 240, 320), dtype=np.float32),
                 # 'camera_3': gym.spaces.Box(0, 1, shape=(3, 240, 320), dtype=np.float32),
                 'camera_0': gym.spaces.Box(0, 1, shape=(3, 240, 320), dtype=np.float32),
-                'mass': gym.spaces.Box( -1, 1, shape=(256,), dtype=np.float32),
+               # 'mass': gym.spaces.Box( -1, 1, shape=(256,), dtype=np.float32),
             }
         )
         # self.observation_space = gym.spaces.Box(
@@ -196,6 +196,7 @@ class EnvControlWrapper:
         return self._jstate
 
     def set_jstate(self, msg):
+        print("Setting jstate", msg)
         self._jstate = msg
 
     def jpc_send_goal(self, jpos):
@@ -213,7 +214,7 @@ class EnvControlWrapperWithCameras(EnvControlWrapper):
     def __init__(self, jpc_pub, n_obs_steps, n_action_steps, path_bag_robot_description, rff_encoder: RandomFourierFeatures, mass_goal=None):
         super().__init__(jpc_pub, n_obs_steps, n_action_steps)
 
-        self.camera_1_compressed_msg = None
+        # self.camera_1_compressed_msg = None
         # self.camera_2_compressed_msg = None
         # self.camera_3_compressed_msg = None
         self.camera_0_compressed_msg = None
@@ -248,7 +249,7 @@ class EnvControlWrapperWithCameras(EnvControlWrapper):
 
     def get_obs(self):
         if (self._jstate is None
-                or self.camera_1_compressed_msg is None
+                # or self.camera_1_compressed_msg is None
                 # or self.camera_2_compressed_msg is None
                 # or self.camera_3_compressed_msg is None
                 or self.camera_0_compressed_msg is None) :
@@ -259,18 +260,18 @@ class EnvControlWrapperWithCameras(EnvControlWrapper):
     def _compute_obs(self):
         pos_end_effector = end_effector_calculator(self._jstate, self._kdl)
 
-        camera_1_data = convert_image(cv_bridge=self.cv_bridge, msg_ros=self.camera_1_compressed_msg)
+        # camera_1_data = convert_image(cv_bridge=self.cv_bridge, msg_ros=self.camera_1_compressed_msg)
         # camera_2_data = convert_image(cv_bridge=self.cv_bridge, msg_ros=self.camera_2_compressed_msg)
         # camera_3_data = convert_image(cv_bridge=self.cv_bridge, msg_ros=self.camera_3_compressed_msg)
         camera_0_data = convert_image(cv_bridge=self.cv_bridge, msg_ros=self.camera_0_compressed_msg)
 
         return {
             'eef': pos_end_effector.astype(np.float32),
-            'camera_1': camera_1_data.astype(np.float32),
+            # 'camera_1': camera_1_data.astype(np.float32),
             # 'camera_2': camera_2_data.astype(np.float32),
             # 'camera_3': camera_3_data.astype(np.float32),
             'camera_0': camera_0_data.astype(np.float32),
-            'mass': self.mass_encoding.astype(np.float32)
+            # 'mass': self.mass_encoding.astype(np.float32)
         }
 
 
@@ -283,10 +284,10 @@ class DiffusionController(NodeParameterMixin,
         jpc_topic='/ruckig_controller/commands',
         jstate_topic='/joint_states',
         cartesian_control_topic='/cartesian_control',
-        camera_0_topic='/azure06/rgb/image_raw/compressed',
+        # camera_0_topic='/azure06/rgb/image_raw/compressed',
         # camera_1_topic='/azure07/rgb/image_raw/compressed',
         # camera_2_topic='/azure08/rgb/image_raw/compressed',
-        camera_1_topic='/d405rs01/color/image_rect_raw/compressed',
+        camera_0_topic='/d405rs01/color/image_rect_raw/compressed',
     )
 
     def __init__(self, policy, critic, n_obs_steps, n_action_steps, path_bag_robot_description, rff_encoder, mass_goal, *args, node_name='robot_calibrator', **kwargs):
@@ -316,8 +317,8 @@ class DiffusionController(NodeParameterMixin,
         self.policy.eval().cuda()
         self.policy.reset()
 
-        self.critic = critic
-        self.critic.eval().cuda()
+        # self.critic = critic
+        # self.critic.eval().cuda()
 
         # self.policy.num_inference_steps = 64
 
@@ -338,8 +339,8 @@ class DiffusionController(NodeParameterMixin,
         # self.camera_2_sub = self.create_subscription(
         #     CompressedImage, self.camera_2_topic, lambda msg: self.env.set_camera_2_compressed_msg(msg), 10)
 
-        self.camera_1_sub = self.create_subscription(
-            CompressedImage, self.camera_1_topic, lambda msg: self.env.set_camera_1_compressed_msg(msg), 10)
+        # self.camera_1_sub = self.create_subscription(
+        #     CompressedImage, self.camera_1_topic, lambda msg: self.env.set_camera_1_compressed_msg(msg), 10)
 
 
     def jpc_send_goal(self, jpos):
@@ -350,16 +351,18 @@ class DiffusionController(NodeParameterMixin,
 
     def policy_cb(self):
         obs = self.env.get_obs()
-        jnts_obs = self.env.get_joints_pos()
         if obs is None:
+            print("obs is None")
             return
+        jnts_obs = self.env.get_joints_pos()
 
-        delta = 5
+        delta = 2
         time_now = self.get_clock().now()
         if self.start_time is None:
             self.start_time = time_now
         dt = (time_now - self.start_time).nanoseconds / 1e9
         if dt <= delta and delta > 0:
+            print("dt <= delta and delta > 0")
             self.stacked_obs = self.env.reset()
             return
         elif delta == 0:
@@ -381,7 +384,8 @@ class DiffusionController(NodeParameterMixin,
         pos_x = pos[:3]
         pos_q = pos[3:]
 
-        # cur_pos = se3(*self.kdl.compute_fk(jnts_obs))
+        # keys_obs = ("camera_0", )
+        keys_obs = ("camera_0", "eef", )
 
         if self.env.queue_actions.empty():
             self.get_logger().info("Adding actions to buffer")
@@ -393,27 +397,42 @@ class DiffusionController(NodeParameterMixin,
                 for key, value in stacked_obs.items():
                     if key in ("eef", "mass"):
                         continue
-                    stacked_obs[key] = np.transpose(stacked_obs[key], (0, 1, 4, 2, 3))
-                    print(key, stacked_obs[key].shape)
+                    stacked_obs[key] = np.transpose(stacked_obs[key], (0, 1, 4, 2, 3)) / 255.
+                    print(key, stacked_obs[key][0])
+
+                filtered_stacked_obs = dict()
+                for key, value in stacked_obs.items():
+                    if key in keys_obs:
+                        filtered_stacked_obs[key] = stacked_obs[key]
+                    else:
+                        ...
 
                 # device transfer
-                obs_dict = dict_apply(stacked_obs,
+                obs_dict = dict_apply(filtered_stacked_obs,
                                       lambda x: torch.from_numpy(x).cuda())
 
-                print(dict_apply(stacked_obs, lambda x: x.shape))
                 # action_dict = self.policy.predict_action_from_several_samples(obs_dict, self.critic, )
+
+                # print(dict_apply(stacked_obs, lambda x: x.shape))
+                print("eef", stacked_obs["eef"])
+
                 action_dict = self.policy.predict_action(obs_dict)
                 np_action_dict = dict_apply(action_dict,
                                             lambda x: x.detach().to('cpu').numpy())
 
-                action = np_action_dict['action']
+                relative_actions = np_action_dict['action']
+
                 metrics = np_action_dict['metrics']
                 wandb.log(metrics)
-                if action.shape[0] == 1:
-                    array_dq = action.reshape(*action.shape[1:])
-                else:
-                    array_dq= action
-                self.env.push_actions([_dq for _dq in array_dq])
+                if relative_actions.shape[0] == 1:
+                    relative_actions = relative_actions.reshape(*relative_actions.shape[1:])
+
+                reference_action = stacked_obs["eef"][0, 0, :]
+                absolute_actions = RealFrankaImageDataset.compute_absolute_action(relative_actions, reference_action)
+
+
+                self.env.push_actions([_dq for _dq in absolute_actions])
+
                 # self.env.push_actions([array_dq[0]])
 
         action_to_execute = self.env.get_from_queue_actions()
@@ -443,8 +462,8 @@ class DiffusionController(NodeParameterMixin,
         J = np.array(self.kdl.compute_jacobian(jnts_obs))
         dq, *_ = np.linalg.lstsq(J, np.concatenate([dx, quat.as_rotation_vector(dq_rot)]))
 
-        if np.max(np.abs(dq)) < 1e-4:
-            return
+        # if np.max(np.abs(dq)) < 1e-4:
+        #     return
 
         print(self.current_command, jnts_obs)
         self.current_command = (0.3 * self.current_command + 0.7 * jnts_obs) + dq
@@ -461,24 +480,23 @@ class DiffusionController(NodeParameterMixin,
     #     'diffusion_policy','config'))
 )
 def main(args=None):
-    # ckpt_path = "/home/ros/humble/src/diffusion_policy/data/outputs/2024.01.16/19.33.40_train_diffusion_unet_image_franka_kitchen_lowdim/checkpoints/latest.ckpt"
-    # ckpt_path = "/home/ros/humble/src/diffusion_policy/data/outputs/2024.01.26/12.15.56_train_diffusion_unet_image_franka_kitchen_lowdim/checkpoints/latest.ckpt"  # trained to also optimize actions
-    # ckpt_path = "/home/ros/humble/src/diffusion_policy/data/outputs/2024.01.31/19.22.29_train_diffusion_unet_image_franka_kitchen_lowdim/checkpoints/latest.ckpt"  # trained to also optimize actions
-    # ckpt_path = "/home/ros/humble/src/diffusion_policy/data/outputs/2024.02.16/17.43.43_train_diffusion_unet_image_franka_kitchen_lowdim/checkpoints/latest.ckpt"  # trained to also optimize actions
-    ckpt_path = "/home/ros/humble/src/diffusion_policy/data/outputs/2024.03.04/15.39.58_train_diffusion_unet_image_franka_kitchen_lowdim/checkpoints/latest.ckpt"  # trained to also optimize actions
+    ckpt_path = "/home/ros/humble/src/diffusion_policy/data/outputs/2024.03.18/11.48.28_train_diffusion_unet_image_franka_kitchen_lowdim/checkpoints/latest.ckpt" # With relative actions + EEF absolute inputs (for testing only)
+    # ckpt_path = "/home/ros/humble/src/diffusion_policy/data/outputs/2024.03.18/13.16.19_train_diffusion_unet_image_franka_kitchen_lowdim/checkpoints/latest.ckpt" # With relative actions
+
     n_obs_steps = 2
     n_action_steps = 8
-    path_bag_robot_description = "/home/ros/humble/src/read-db/rosbag2_2024_01_16-19_05_24/"
+    path_bag_robot_description = "/home/ros/humble/src/diffusion_policy/data/experiment_2/bags_kinesthetic/rosbag_00/"
 
     payload = torch.load(open(ckpt_path, 'rb'), pickle_module=dill)
     cfg = payload['cfg']
+    # cfg.task.dataset.dataset_path = "/home/ros/humble/src/diffusion_policy/data/fake_puree_experiments/diffusion_policy_dataset/"
     cls = hydra.utils.get_class(cfg._target_)
     workspace = cls(cfg)
     workspace: BaseWorkspace
     workspace.load_payload(payload, exclude_keys=None, include_keys=None)
-    _config_noise_scheduler = {**copy.deepcopy(cfg.policy.noise_scheduler)}
-    del _config_noise_scheduler["_target_"]
-    workspace.model.noise_scheduler = DDIMGuidedScheduler(coefficient_reward=0., **_config_noise_scheduler)
+    # _config_noise_scheduler = {**copy.deepcopy(cfg.policy.noise_scheduler)}
+    # del _config_noise_scheduler["_target_"]
+    # workspace.model.noise_scheduler = DDIMGuidedScheduler(coefficient_reward=0., **_config_noise_scheduler)
 
     # configure logging
     output_dir = HydraConfig.get().runtime.output_dir
@@ -498,6 +516,7 @@ def main(args=None):
     # print(workspace.model.normalizer["obs"].params_dict["offset"])
 
     workspace.model = workspace.model.cuda()
+    # workspace.ema_model = workspace.ema_model.cuda()
     # workspace.model = torch.compile(workspace.model).cuda()
 
     args = None

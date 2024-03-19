@@ -84,9 +84,9 @@ policy:
     - 288
   diffusion_step_embed_dim: 128
   down_dims:
-    - 256
     - 512
     - 1024
+    - 2048
   eval_fixed_crop: true
   horizon: 16
   kernel_size: 5
@@ -104,16 +104,16 @@ policy:
           - 240
           - 320
         type: rgb
-      camera_1:
-        shape:
-          - 3
-          - 240
-          - 320
-        type: rgb
-      mass:
-        shape:
-          - 256  # after RFF
-        type: low_dim
+      # camera_1:
+      #   shape:
+      #     - 3
+      #     - 240
+      #     - 320
+      #   type: rgb
+#      mass:
+#        shape:
+#          - 256  # after RFF
+#        type: low_dim
 #      camera_2:
 #        shape:
 #          - 3
@@ -126,23 +126,32 @@ policy:
 #          - 240
 #          - 320
 #        type: rgb
-      eef:
-        shape:
-          - 7
-        type: low_dim
+#      eef:
+#        shape:
+#          - 7
+#        type: low_dim
+  # noise_scheduler:
+  #   _target_: diffusers.schedulers.scheduling_ddim.DDIMScheduler
+  #   num_train_timesteps: 100
+  #   beta_start: 0.0001
+  #   beta_end: 0.02
+  #   # beta_schedule is important
+  #   # this is the best we found
+  #   beta_schedule: squaredcos_cap_v2
+  #   clip_sample: True
+  #   set_alpha_to_one: True
+  #   steps_offset: 0
+  #   prediction_type: epsilon # or sample
   noise_scheduler:
-    _target_: diffusers.schedulers.scheduling_ddim.DDIMScheduler
+    _target_: diffusers.schedulers.scheduling_ddpm.DDPMScheduler
     num_train_timesteps: 100
     beta_start: 0.0001
     beta_end: 0.02
-    # beta_schedule is important
-    # this is the best we found
     beta_schedule: squaredcos_cap_v2
-    clip_sample: True
-    set_alpha_to_one: True
-    steps_offset: 0
+    variance_type: fixed_small # Yilun's paper uses fixed_small_log instead, but easy to cause Nan
+    clip_sample: True # required when predict_epsilon=False
     prediction_type: epsilon # or sample
-  num_inference_steps: 10
+  num_inference_steps: 100
   obs_as_global_cond: true
   obs_encoder_group_norm: true
 critic:
@@ -175,14 +184,14 @@ critic:
           - 240
           - 320
         type: rgb
-      mass:
-        shape:
-          - 256 # after RFF
-        type: low_dim
-      eef:
-        shape:
-          - 7
-        type: low_dim
+#      mass:
+#        shape:
+#          - 256 # after RFF
+#        type: low_dim
+#      eef:
+#        shape:
+#          - 7
+#        type: low_dim
   obs_as_global_cond: true
   gamma: 0.99
 
@@ -203,16 +212,16 @@ task:
             - 240
             - 320
           type: rgb
-        camera_1:
-          shape:
-            - 3
-            - 240
-            - 320
-          type: rgb
-        mass:
-          shape:
-            - 256 # after RFF
-          type: low_dim
+        # camera_1:
+        #   shape:
+        #     - 3
+        #     - 240
+        #     - 320
+        #   type: rgb
+#        mass:
+#          shape:
+#            - 256 # after RFF
+#          type: low_dim
 #        camera_2:
 #          shape:
 #            - 3
@@ -225,16 +234,17 @@ task:
 #            - 240
 #            - 320
 #          type: rgb
-        eef:
-          shape:
-            - 7
-          type: low_dim
+#        eef:
+#          shape:
+#            - 7
+#          type: low_dim
       label:
         shape:
           - 1
         type: low_dim
 #    dataset_path: /home/ros/humble/src/diffusion_policy/data/smaller_dataset
-    dataset_path: /home/lucagrillotti/ros/humble/src/diffusion_policy/data/fake_puree_experiments/diffusion_policy_dataset/
+#    dataset_path: /home/sony-unicorn/ros/humble/src/diffusion_policy/data/fake_puree_experiments/diffusion_policy_dataset/
+    dataset_path: /home/ros/humble/src/diffusion_policy/data/fake_puree_experiments/diffusion_policy_dataset_exp2/
     dt: 0.1
     horizon: 16
     n_obs_steps: 2
@@ -271,13 +281,13 @@ training:
   val_every: 5
 val_dataloader:
   batch_size: 16
-  num_workers: 32
+  num_workers: 8
   persistent_workers: false
   pin_memory: true
   shuffle: false
 dataloader:
   batch_size: 64
-  num_workers: 32
+  num_workers: 30
   persistent_workers: false
   pin_memory: true
   shuffle: true

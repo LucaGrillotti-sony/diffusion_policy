@@ -2,6 +2,7 @@ import random
 from typing import Dict, List
 import torch
 import numpy as np
+import quaternion as quat
 import zarr
 import os
 import shutil
@@ -208,8 +209,26 @@ class RealFrankaImageDataset(BaseImageDataset):
         normalizer = LinearNormalizer()
 
         # action
-        normalizer['action'] = SingleFieldLinearNormalizer.create_fit(
-            self.replay_buffer['action'])
+        # normalizer['action'] = SingleFieldLinearNormalizer.create_fit(
+        #     self.replay_buffer['action'])
+        print('Fitting normalizer for action')
+        import multiprocessing as mp
+        # def f(i):
+        #     return self[i]
+        with mp.Pool(16) as pool:
+            all_sequences = pool.map(self.__getitem__, list(range(self.__len__())))
+        # all_sequences = list()
+        # for i in range(self.__len__()):
+        #     if i % 10 == 0:
+        #         print(f'Fitting normalizer for action: {i}/{self.__len__()}', end='\r')
+        #     all_sequences.append(self[i])
+        # all_sequences = [self[i] for i in range(self.__len__())]
+        all_relative_seq = list()
+        for _seq in all_sequences:
+            relative_seq = _seq['action']
+            all_relative_seq.append(relative_seq)
+        all_relative_actions = np.concatenate(all_relative_seq, axis=0)
+        normalizer['action'] = SingleFieldLinearNormalizer.create_fit(all_relative_actions)
         
         # obs
         for key in self.lowdim_keys:
@@ -260,12 +279,13 @@ class RealFrankaImageDataset(BaseImageDataset):
             del data[key]
 
         action = data['action'].astype(np.float32)
-        labels = data['label'].astype(np.uint8)
-        labels = labels[T_slice]
+        # labels = data['label'].astype(np.uint8)
+        # labels = labels[T_slice]
 
-        if 'mass' in obs_dict:
-            obs_dict['mass'] = self.encode_mass(obs_dict['mass'])
-            next_obs_dict['mass'] = self.encode_mass(next_obs_dict['mass'])
+        assert 'mass' not in obs_dict
+        # if 'mass' in obs_dict:
+        #     obs_dict['mass'] = self.encode_mass(obs_dict['mass'])
+        #     next_obs_dict['mass'] = self.encode_mass(next_obs_dict['mass'])
 
         # handle latency by dropping first n_latency_steps action
         # observations are already taken care of by T_slice
@@ -274,13 +294,61 @@ class RealFrankaImageDataset(BaseImageDataset):
         else:
             action = action[:self.horizon]
 
+        print("ABSOLUTE ACTION", action)
+        action = self.compute_action_relative_to_initial_eef(action, action[0])
+        print("RELATIVE ACTION", action)
+
         torch_data = {
             'obs': dict_apply(obs_dict, torch.from_numpy),
             'action': torch.from_numpy(action),
-            'next_obs': dict_apply(next_obs_dict, torch.from_numpy),
-            'label': torch.from_numpy(labels),
+            # 'next_obs': dict_apply(next_obs_dict, torch.from_numpy),
+            # 'label': torch.from_numpy(labels),
         }
         return torch_data
+
+    @staticmethod
+    def compute_action_relative_to_initial_eef(action, initial_eef):
+        assert action.shape[-1] == 7
+
+        xyz_action = action[:, :3]
+        xyz_initial_eef = initial_eef[:3]
+        relative_xyz = xyz_action - xyz_initial_eef
+
+        # quaternion relative rotations
+        q_action = quat.from_float_array(action[:, 3:])
+        q_initial_eef = quat.from_float_array(initial_eef[3:])
+
+        q_relative = q_action * q_initial_eef.conjugate()
+
+        q_relative = quat.as_float_array(q_relative)
+
+        return np.concatenate([relative_xyz, q_relative], axis=-1)
+
+    @staticmethod
+    def compute_absolute_action(relative_action, initial_eef):
+        assert relative_action.shape[-1] == 7
+
+        xyz_relative = relative_action[:, :3]
+        xyz_initial_eef = initial_eef[:3]
+        absolute_xyz = xyz_relative + xyz_initial_eef
+
+        rot_relative = relative_action[:, 3:]
+        rot_relative = rot_relative / np.linalg.norm(rot_relative, axis=1).reshape(-1, 1)
+        # print("rot_relative.shape", rot_relative.shape, np.linalg.norm(rot_relative, axis=1).reshape(-1, 1).shape)
+
+        # quaternion relative rotations
+        q_relative = quat.from_float_array(rot_relative)
+        q_initial_eef = quat.from_float_array(initial_eef[3:])
+
+        q_absolute = q_relative * q_initial_eef
+
+        q_absolute = quat.as_float_array(q_absolute)
+
+        print("xyz_relative", xyz_relative)
+        # print("q_absolute", q_absolute, np.linalg.norm(q_absolute, axis=1))
+
+        return np.concatenate([absolute_xyz, q_absolute], axis=-1)
+
 
 def zarr_resize_index_last_dim(zarr_arr, idxs):
     actions = zarr_arr[:]
@@ -320,7 +388,8 @@ def _get_replay_buffer(dataset_path, shape_meta, store, dt):
             dataset_path=dataset_path,
             out_store=store,
             out_resolutions=out_resolutions,
-            lowdim_keys=lowdim_keys + ['action'] + ['label', 'mass'],
+            # lowdim_keys=lowdim_keys + ['action'] + ['label', 'mass'],
+            lowdim_keys=lowdim_keys + ['action'],
             image_keys=rgb_keys,
             dt=dt,
         )
@@ -331,10 +400,10 @@ def _get_replay_buffer(dataset_path, shape_meta, store, dt):
         zarr_arr = replay_buffer['action']
         zarr_resize_index_last_dim(zarr_arr, idxs=[0,1])
 
-    # transform lowdim dimensions
-    if action_shape == (2,):
-        zarr_arr = replay_buffer['label']
-        zarr_resize_index_last_dim(zarr_arr, idxs=[0, 1])
+    # # transform lowdim dimensions
+    # if action_shape == (2,):
+    #     zarr_arr = replay_buffer['label']
+    #     zarr_resize_index_last_dim(zarr_arr, idxs=[0, 1])
 
     for key, shape in lowdim_shapes.items():
         if 'pose' in key and shape == (2,):

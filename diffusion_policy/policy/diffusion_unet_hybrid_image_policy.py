@@ -485,34 +485,36 @@ class DiffusionUnetHybridImagePolicy(BaseImagePolicy):
         loss_diffusion = reduce(loss_diffusion, 'b ... -> b (...)', 'mean')
         loss_diffusion = loss_diffusion.mean()
 
-        actions_policy_dict = self.predict_action(batch['obs'])
-        actions_policy = actions_policy_dict["action_pred"]
+        # actions_policy_dict = self.predict_action(batch['obs'])
+        # actions_policy = actions_policy_dict["action_pred"]
         # Compute critic values
-        nactions_policy = self.normalizer['action'].normalize(actions_policy)
+        # nactions_policy = self.normalizer['action'].normalize(actions_policy)
 
-        critic_values = critic_network.get_one_critic(nactions_policy, local_cond=None, global_cond=global_cond,)
+        # critic_values = critic_network.get_one_critic(nactions_policy, local_cond=None, global_cond=global_cond,)
 
-        loss_score = -1. * critic_values.mean()
+        # loss_score = -1. * critic_values.mean()
 
-        with torch.no_grad():
-            nactions_dataset = nactions_dataset.detach()
-            critic_values_cst = critic_network.get_one_critic(nactions_dataset, local_cond=None, global_cond=global_cond)
-            critic_values_cst = critic_values_cst.detach()
-            mean_abs_critic_values = torch.mean(torch.abs(critic_values_cst))
+        # with torch.no_grad():
+        #     nactions_dataset = nactions_dataset.detach()
+        #     critic_values_cst = critic_network.get_one_critic(nactions_dataset, local_cond=None, global_cond=global_cond)
+        #     critic_values_cst = critic_values_cst.detach()
+        #     mean_abs_critic_values = torch.mean(torch.abs(critic_values_cst))
 
-        alpha_coeff = self.eta_coeff_critic / mean_abs_critic_values
-        loss_score = alpha_coeff * loss_score
+        # alpha_coeff = self.eta_coeff_critic / mean_abs_critic_values
+        # loss_score = alpha_coeff * loss_score
 
-        loss_actor = loss_diffusion + sigmoid_lagrange * loss_score
+        # loss_actor = loss_diffusion + sigmoid_lagrange * loss_score
+        loss_actor = loss_diffusion
+
         # loss_lagrange = self.compute_loss_lagrange(actions_policy_dict, batch)
         metrics = {
             "diffusion_loss": loss_diffusion,
-            "score_loss": loss_score,
-            "alpha_coeff": alpha_coeff,
-            "critic_values": critic_values.mean(),
+            # "score_loss": loss_score,
+            # "alpha_coeff": alpha_coeff,
+            # "critic_values": critic_values.mean(),
         }
         other_data = {
-            "sample_actions": actions_policy_dict,
+            # "sample_actions": actions_policy_dict,
             "nobs_features": nobs_features,
         }
         return loss_actor, metrics, other_data
