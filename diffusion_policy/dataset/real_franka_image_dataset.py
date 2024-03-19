@@ -182,6 +182,8 @@ class RealFrankaImageDataset(BaseImageDataset):
         self.rff_encoder = RandomFourierFeatures(encoding_size=self.mass_encoding_size, vector_size=2, period_adjustment_rff=self.period_adjustment_rff)
         self.proba_diffusion_remove_mass_label = proba_diffusion_remove_mass_label
 
+        self.fixed_initial_eef = np.asarray([0., 0., 0., 1., 0., 0., 0.]) # TODO: choose initial eef from dataset.
+
     def get_validation_dataset(self):
         val_set = copy.copy(self)
         val_set.sampler = SequenceSampler(
@@ -217,23 +219,24 @@ class RealFrankaImageDataset(BaseImageDataset):
         #     return self[i]
         with mp.Pool(16) as pool:
             all_sequences = pool.map(self.__getitem__, list(range(self.__len__())))
-        # all_sequences = list()
-        # for i in range(self.__len__()):
-        #     if i % 10 == 0:
-        #         print(f'Fitting normalizer for action: {i}/{self.__len__()}', end='\r')
-        #     all_sequences.append(self[i])
-        # all_sequences = [self[i] for i in range(self.__len__())]
-        all_relative_seq = list()
+
+        all_relative_action_seq = list()
+        all_relative_eef = list()
         for _seq in all_sequences:
             relative_seq = _seq['action']
-            all_relative_seq.append(relative_seq)
-        all_relative_actions = np.concatenate(all_relative_seq, axis=0)
+            relative_eef = _seq['obs']['eef']
+            all_relative_action_seq.append(relative_seq)
+            all_relative_eef.append(relative_eef)
+        all_relative_actions = np.concatenate(all_relative_action_seq, axis=0)
+        all_relative_eef = np.concatenate(all_relative_eef, axis=0)
         normalizer['action'] = SingleFieldLinearNormalizer.create_fit(all_relative_actions)
         
         # obs
         for key in self.lowdim_keys:
             if key == 'mass':
                 normalizer[key] = SingleFieldLinearNormalizer.create_identity()
+            elif key == 'eef':
+                normalizer[key] = SingleFieldLinearNormalizer.create_fit(all_relative_eef)
             else:
                 normalizer[key] = SingleFieldLinearNormalizer.create_fit(self.replay_buffer[key])
         
@@ -275,6 +278,11 @@ class RealFrankaImageDataset(BaseImageDataset):
         for key in self.lowdim_keys:
             obs_dict[key] = data[key][T_slice].astype(np.float32)
             next_obs_dict[key] = data[key][next_T_slice].astype(np.float32)
+
+            # Compute relative action (relative EEF wrt initial position)
+            if key == 'eef':
+                obs_dict[key] = self.compute_action_relative_to_initial_eef(obs_dict[key], self.fixed_initial_eef)
+                next_obs_dict[key] = self.compute_action_relative_to_initial_eef(next_obs_dict[key], self.fixed_initial_eef)
             # save ram
             del data[key]
 
@@ -294,9 +302,7 @@ class RealFrankaImageDataset(BaseImageDataset):
         else:
             action = action[:self.horizon]
 
-        print("ABSOLUTE ACTION", action)
-        action = self.compute_action_relative_to_initial_eef(action, action[0])
-        print("RELATIVE ACTION", action)
+        action = self.compute_action_relative_to_initial_eef(action, self.fixed_initial_eef)
 
         torch_data = {
             'obs': dict_apply(obs_dict, torch.from_numpy),
