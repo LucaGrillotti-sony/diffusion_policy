@@ -182,7 +182,8 @@ class RealFrankaImageDataset(BaseImageDataset):
         self.rff_encoder = RandomFourierFeatures(encoding_size=self.mass_encoding_size, vector_size=2, period_adjustment_rff=self.period_adjustment_rff)
         self.proba_diffusion_remove_mass_label = proba_diffusion_remove_mass_label
 
-        self.fixed_initial_eef = np.asarray([0., 0., 0., 1., 0., 0., 0.]) # TODO: choose initial eef from dataset.
+        # Choosing initial EEF from dataset.
+        self.fixed_initial_eef = np.asarray([0.4000259,  0.04169807, 0.43917269, 0.0368543,  0.97042745, 0.23850703, 0.00517287]) 
 
     def get_validation_dataset(self):
         val_set = copy.copy(self)
@@ -230,6 +231,8 @@ class RealFrankaImageDataset(BaseImageDataset):
         all_relative_actions = np.concatenate(all_relative_action_seq, axis=0)
         all_relative_eef = np.concatenate(all_relative_eef, axis=0)
         normalizer['action'] = SingleFieldLinearNormalizer.create_fit(all_relative_actions)
+        print("initial_eef", all_relative_eef[0])
+
         
         # obs
         for key in self.lowdim_keys:

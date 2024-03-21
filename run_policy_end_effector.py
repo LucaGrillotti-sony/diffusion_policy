@@ -480,8 +480,9 @@ class DiffusionController(NodeParameterMixin,
     #     'diffusion_policy','config'))
 )
 def main(args=None):
-    ckpt_path = "/home/ros/humble/src/diffusion_policy/data/outputs/2024.03.18/11.48.28_train_diffusion_unet_image_franka_kitchen_lowdim/checkpoints/latest.ckpt" # With relative actions + EEF absolute inputs (for testing only)
+    # ckpt_path = "/home/ros/humble/src/diffusion_policy/data/outputs/2024.03.18/11.48.28_train_diffusion_unet_image_franka_kitchen_lowdim/checkpoints/latest.ckpt" # With relative actions + EEF absolute inputs (for testing only)
     # ckpt_path = "/home/ros/humble/src/diffusion_policy/data/outputs/2024.03.18/13.16.19_train_diffusion_unet_image_franka_kitchen_lowdim/checkpoints/latest.ckpt" # With relative actions
+    ckpt_path = "/home/ros/humble/src/diffusion_policy/data/outputs/2024.03.19/15.41.17_train_diffusion_unet_image_franka_kitchen_lowdimm/checkpoints/latest.ckpt"  # With relative actions w.r.t. absolute initial position.
 
     n_obs_steps = 2
     n_action_steps = 8
