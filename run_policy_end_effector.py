@@ -395,7 +395,10 @@ class DiffusionController(NodeParameterMixin,
 
                 # print("To", To)
                 for key, value in stacked_obs.items():
-                    if key in ("eef", "mass"):
+                    if key in ("mass",):
+                        continue
+                    elif key in ("eef",):
+                        stacked_obs[key] = RealFrankaImageDataset.compute_action_relative_to_initial_eef(stacked_obs[key], RealFrankaImageDataset.FIXED_INITIAL_EEF)
                         continue
                     stacked_obs[key] = np.transpose(stacked_obs[key], (0, 1, 4, 2, 3)) / 255.
                     print(key, stacked_obs[key][0])
@@ -427,9 +430,8 @@ class DiffusionController(NodeParameterMixin,
                 if relative_actions.shape[0] == 1:
                     relative_actions = relative_actions.reshape(*relative_actions.shape[1:])
 
-                reference_action = stacked_obs["eef"][0, 0, :]
-                absolute_actions = RealFrankaImageDataset.compute_absolute_action(relative_actions, reference_action)
-
+                # reference_action = stacked_obs["eef"][0, 0, :]
+                absolute_actions = RealFrankaImageDataset.compute_absolute_action(relative_actions, RealFrankaImageDataset.FIXED_INITIAL_EEF)
 
                 self.env.push_actions([_dq for _dq in absolute_actions])
 

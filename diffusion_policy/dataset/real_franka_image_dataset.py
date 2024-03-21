@@ -45,6 +45,11 @@ class RandomFourierFeatures:
 
 
 class RealFrankaImageDataset(BaseImageDataset):
+    # Choosing initial EEF from dataset.
+    FIXED_INITIAL_EEF = np.asarray([0.4000259, 0.04169807, 0.43917269,  # XYZ
+                                    0.0368543, 0.97042745, 0.23850703, 0.00517287],  # Quaternion
+                                   )
+
     def __init__(self,
             shape_meta: dict,
             dataset_path: str,
@@ -182,9 +187,6 @@ class RealFrankaImageDataset(BaseImageDataset):
         self.rff_encoder = RandomFourierFeatures(encoding_size=self.mass_encoding_size, vector_size=2, period_adjustment_rff=self.period_adjustment_rff)
         self.proba_diffusion_remove_mass_label = proba_diffusion_remove_mass_label
 
-        # Choosing initial EEF from dataset.
-        self.fixed_initial_eef = np.asarray([0.4000259,  0.04169807, 0.43917269, 0.0368543,  0.97042745, 0.23850703, 0.00517287]) 
-
     def get_validation_dataset(self):
         val_set = copy.copy(self)
         val_set.sampler = SequenceSampler(
@@ -284,8 +286,8 @@ class RealFrankaImageDataset(BaseImageDataset):
 
             # Compute relative action (relative EEF wrt initial position)
             if key == 'eef':
-                obs_dict[key] = self.compute_action_relative_to_initial_eef(obs_dict[key], self.fixed_initial_eef)
-                next_obs_dict[key] = self.compute_action_relative_to_initial_eef(next_obs_dict[key], self.fixed_initial_eef)
+                obs_dict[key] = self.compute_action_relative_to_initial_eef(obs_dict[key], self.FIXED_INITIAL_EEF)
+                next_obs_dict[key] = self.compute_action_relative_to_initial_eef(next_obs_dict[key], self.FIXED_INITIAL_EEF)
             # save ram
             del data[key]
 
@@ -305,7 +307,7 @@ class RealFrankaImageDataset(BaseImageDataset):
         else:
             action = action[:self.horizon]
 
-        action = self.compute_action_relative_to_initial_eef(action, self.fixed_initial_eef)
+        action = self.compute_action_relative_to_initial_eef(action, self.FIXED_INITIAL_EEF)
 
         torch_data = {
             'obs': dict_apply(obs_dict, torch.from_numpy),
