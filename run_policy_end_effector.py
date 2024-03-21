@@ -93,7 +93,8 @@ class EnvControlWrapper:
         # self.init_pos = init_positions[len(init_positions) // 3, :7]
         # self.init_pos = np.asarray([-0.38435703, -0.82782065, 0.25952787, -2.3897604, 0.18524243, 1.5886066, 0.59382302])
         # self.init_pos = np.asarray([-0.08435703, -0.62782065, 0.25952787, -2.3897604, 0.18524243, 1.5886066, 0.59382302])
-        self.init_pos = None
+        # self.init_pos = None  # keep initial position of the robot unchanged before starting the experiment
+        self.init_pos = RealFrankaImageDataset.FIXED_INITIAL_EEF
         self._jstate = None
 
         self.n_obs_steps = n_obs_steps
@@ -103,6 +104,9 @@ class EnvControlWrapper:
         self.all_observations = collections.deque(maxlen=self.n_obs_steps)  # TODO: same for reward?
 
         self.queue_actions = queue.Queue()
+
+        # start with the initial position as a goal
+        self.push_actions([self.init_pos] * 50)
 
     def reset(self):
         # TODO: handle reset properly
