@@ -307,7 +307,8 @@ class RealFrankaImageDataset(BaseImageDataset):
         else:
             action = action[:self.horizon]
 
-        action = self.compute_action_relative_to_initial_eef(action, self.FIXED_INITIAL_EEF)
+        action = self.compute_action_relative_to_initial_eef(action, action[0])
+        # action = self.compute_action_relative_to_initial_eef(action, self.FIXED_INITIAL_EEF)
 
         torch_data = {
             'obs': dict_apply(obs_dict, torch.from_numpy),
