@@ -98,7 +98,6 @@ def convert_image(cv_bridge: CvBridge, msg_ros, is_depth=False):
     # print(msg_ros.header) 
     # img_np = cv_bridge.imgmsg_to_cv2(msg_ros, desired_encoding='32FC1')
 
-
     if img_np is None:
         return None
 
@@ -154,7 +153,7 @@ def make_video(list_images: List[ImageWithTimestamp], name, fps, is_color=True):
             original_image = _image_data.img_np
             original_image_with_border = cv2.copyMakeBorder(original_image, 1, 1, 1, 1, cv2.BORDER_DEFAULT)
 
-            img_np = np.clip(original_image, 0, 400)
+            img_np = np.clip(original_image, 100, 500)
 
             # print(img_np.shape)
             img_np = (img_np - np.min(img_np)) / (np.max(img_np) - np.min(img_np))
