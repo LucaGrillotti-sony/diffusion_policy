@@ -101,10 +101,13 @@ def convert_image(cv_bridge: CvBridge, msg_ros, is_depth=False):
 
     if img_np is None:
         return None
+
     if is_depth:
         # print("DEPTH", img_np.shape)
         ...
-    img_np = cv2.resize(img_np, (320, 240), interpolation=cv2.INTER_AREA)
+
+    img_np = img_np[250:650, 0:400]
+    # img_np = cv2.resize(img_np, (320, 240), interpolation=cv2.INTER_AREA)
     return img_np
 
 
