@@ -104,16 +104,20 @@ policy:
           - 240
           - 320
         type: rgb
+      eef:
+        shape:
+         - 7
+        type: low_dim
       # camera_1:
       #   shape:
       #     - 3
       #     - 240
       #     - 320
       #   type: rgb
-#      mass:
-#        shape:
-#          - 256  # after RFF
-#        type: low_dim
+      mass:
+        shape:
+          - 256  # after RFF
+        type: low_dim
 #      camera_2:
 #        shape:
 #          - 3
@@ -126,10 +130,7 @@ policy:
 #          - 240
 #          - 320
 #        type: rgb
-#      eef:
-#        shape:
-#          - 7
-#        type: low_dim
+
   # noise_scheduler:
   #   _target_: diffusers.schedulers.scheduling_ddim.DDIMScheduler
   #   num_train_timesteps: 100
@@ -184,14 +185,14 @@ critic:
           - 240
           - 320
         type: rgb
-#      mass:
-#        shape:
-#          - 256 # after RFF
-#        type: low_dim
-#      eef:
-#        shape:
-#          - 7
-#        type: low_dim
+      mass:
+        shape:
+          - 256 # after RFF
+        type: low_dim
+      eef:
+        shape:
+          - 7
+        type: low_dim
   obs_as_global_cond: true
   gamma: 0.99
 
@@ -218,10 +219,10 @@ task:
         #     - 240
         #     - 320
         #   type: rgb
-#        mass:
-#          shape:
-#            - 256 # after RFF
-#          type: low_dim
+        mass:
+          shape:
+            - 256 # after RFF
+          type: low_dim
 #        camera_2:
 #          shape:
 #            - 3
@@ -234,17 +235,17 @@ task:
 #            - 240
 #            - 320
 #          type: rgb
-#        eef:
-#          shape:
-#            - 7
-#          type: low_dim
+        eef:
+          shape:
+            - 7
+          type: low_dim
       label:
         shape:
           - 1
         type: low_dim
 #    dataset_path: /home/ros/humble/src/diffusion_policy/data/smaller_dataset
 #    dataset_path: /home/sony-unicorn/ros/humble/src/diffusion_policy/data/fake_puree_experiments/diffusion_policy_dataset/
-    dataset_path: /home/ros/humble/src/diffusion_policy/data/fake_puree_experiments/diffusion_policy_dataset_exp2/
+    dataset_path: /home/ros/humble/src/diffusion_policy/data/fake_puree_experiments/diffusion_policy_dataset_exp2_v1/
     dt: 0.1
     horizon: 16
     n_obs_steps: 2
@@ -258,7 +259,7 @@ task:
     use_cache: true
     mass_encoding_size: 256
     period_adjustment_rff: 0.15
-    proba_diffusion_remove_mass_label: 0.1
+    proba_diffusion_remove_mass_label: 0.2
   env_runner:
     _target_: diffusion_policy.env_runner.real_robot_runner.DummyImageRobot
 task_name: kitchen_lowdim

@@ -114,7 +114,12 @@ def convert_image(cv_bridge: CvBridge, msg_ros, is_depth=False):
         depth_scale = np.abs(depth).max()
         img_np = cv2.inpaint(depth / depth_scale, depth_nan_mask, 1, cv2.INPAINT_NS) * depth_scale
 
-    img_np = img_np[250:650, 0:400]
+    # print("IMG NP Shape", img_np.shape)
+    side_size = 400
+    middle_width = img_np.shape[0] // 2
+    middle_height = img_np.shape[1] // 2
+    img_np = img_np[middle_width - (side_size // 2):middle_width + (side_size // 2), middle_height - (side_size // 2):middle_height + (side_size // 2)]
+    # img_np = img_np[250:1050, 0:800]
     # img_np = cv2.resize(img_np, (320, 240), interpolation=cv2.INTER_AREA)
     return img_np
 
@@ -211,7 +216,7 @@ def end_effector_calculator(command_1, _kdl):
     pos_end_effector = np.concatenate([r.ravel(), q.ravel()])
     return pos_end_effector
 
-def treat_folder(path_load, path_save, index_episode):
+def treat_folder(path_load, path_save, index_episode, mass):
     path_load = Path(path_load)
     frequency = 10
     folder_name = path_load.name
@@ -342,8 +347,12 @@ def treat_folder(path_load, path_save, index_episode):
 
     NAME_ANNOTATIONS = "annotations_video.npy"
     NAME_INTERPOLATED_ANNOTATIONS = "annotations_video_interpolated.npy"
+    NAME_MASS_TXT = "mass.txt"
     _path_annotations = _path_folder / NAME_ANNOTATIONS
     _path_save_interpolated = _path_folder / NAME_INTERPOLATED_ANNOTATIONS
+    _pass_mass = _path_folder / NAME_MASS_TXT
+    with open(_pass_mass, 'w') as f:
+        f.write(str(mass))
     if _path_annotations.exists():
         print(f"{NAME_ANNOTATIONS} exists, generating {NAME_INTERPOLATED_ANNOTATIONS}...")
         annotations = np.load(_path_annotations)
@@ -352,9 +361,22 @@ def treat_folder(path_load, path_save, index_episode):
         np.save(_path_save_interpolated, annotations_interpolated)
 
 
+def read_masses_csv(path_csv):
+    import pandas as pd
+    df = pd.read_csv(str(path_csv))
+    dict_masses_per_index = dict()
+    for index_row in range(len(df)):
+        dict_masses_per_index[int(df.iloc[index_row, 0])] = float(df.iloc[index_row, 1])
+    return dict_masses_per_index
+
+
 def main():
-    PATH_TO_LOAD = pathlib.Path("/home/ros/humble/src/diffusion_policy/data/experiment_2/bags_kinesthetic/").absolute()
-    PATH_SAVE = pathlib.Path("/home/ros/humble/src/diffusion_policy/data/fake_puree_experiments/diffusion_policy_dataset_exp2/").absolute()
+    PATH_TO_LOAD = pathlib.Path("/home/ros/humble/src/diffusion_policy/data/experiment_2/bags_kinesthetic_v1/").absolute()
+    PATH_SAVE = pathlib.Path("/home/ros/humble/src/diffusion_policy/data/fake_puree_experiments/diffusion_policy_dataset_exp2_v1/").absolute()
+    
+    PATH_MASSES_CSV = PATH_TO_LOAD / "masses_per_demo.csv"
+    masses_per_demo = read_masses_csv(PATH_MASSES_CSV)
+
     PATH_SAVE.mkdir(exist_ok=True, parents=True)
     rosbag_paths = [file for file in PATH_TO_LOAD.iterdir() if file.name.startswith("rosbag")]
     for file in PATH_TO_LOAD.iterdir():
@@ -365,7 +387,8 @@ def main():
         print(f"Treating folder {rosbag_paths}")
         treat_folder(path_load=rosbag_paths.absolute(),
                      path_save=PATH_SAVE,
-                     index_episode=index)
+                     index_episode=index,
+                     mass=masses_per_demo[index])
 
 if __name__ == '__main__':
     main()

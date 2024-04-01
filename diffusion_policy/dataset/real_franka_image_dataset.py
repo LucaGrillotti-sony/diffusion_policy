@@ -199,7 +199,7 @@ class RealFrankaImageDataset(BaseImageDataset):
         val_set.val_mask = ~self.val_mask
         return val_set
 
-    def encode_mass(self, mass):
+    def encode_mass(self, mass, ):
         mass_len = mass.shape[0]
         if random.random() < self.proba_diffusion_remove_mass_label:
             mass_v = np.asarray([[0., 1.] for _ in range(mass_len)])
@@ -209,6 +209,14 @@ class RealFrankaImageDataset(BaseImageDataset):
 
         mass_encoding = self.rff_encoder.encode_vector(mass_v)
         return mass_encoding
+
+    def get_vector_mass(self, mass, neutral=False):
+        mass_len = mass.shape[0]
+        if not neutral:
+            mass_v = np.hstack((mass.reshape(mass_len, 1), np.zeros(shape=(mass_len, 1))))
+        else:
+            mass_v = np.asarray([[0., 1.] for _ in range(mass_len)])
+        return mass_v
 
     def get_normalizer(self, **kwargs) -> LinearNormalizer:
         normalizer = LinearNormalizer()
@@ -224,24 +232,24 @@ class RealFrankaImageDataset(BaseImageDataset):
             all_sequences = pool.map(self.__getitem__, list(range(self.__len__())))
 
         all_relative_action_seq = list()
-        all_relative_eef = list()
+        # all_relative_eef = list()
         for _seq in all_sequences:
             relative_seq = _seq['action']
-            relative_eef = _seq['obs']['eef']
+            # relative_eef = _seq['obs']['eef']  # TODO: find 
             all_relative_action_seq.append(relative_seq)
-            all_relative_eef.append(relative_eef)
+            # all_relative_eef.append(relative_eef)
         all_relative_actions = np.concatenate(all_relative_action_seq, axis=0)
-        all_relative_eef = np.concatenate(all_relative_eef, axis=0)
+        # all_relative_eef = np.concatenate(all_relative_eef, axis=0)
         normalizer['action'] = SingleFieldLinearNormalizer.create_fit(all_relative_actions)
-        print("initial_eef", all_relative_eef[0])
+        # print("initial_eef", all_relative_eef[0])
 
         
         # obs
         for key in self.lowdim_keys:
             if key == 'mass':
                 normalizer[key] = SingleFieldLinearNormalizer.create_identity()
-            elif key == 'eef':
-                normalizer[key] = SingleFieldLinearNormalizer.create_fit(all_relative_eef)
+            # elif key == 'eef':
+            #     normalizer[key] = SingleFieldLinearNormalizer.create_fit(all_relative_eef)
             else:
                 normalizer[key] = SingleFieldLinearNormalizer.create_fit(self.replay_buffer[key])
         
@@ -284,10 +292,10 @@ class RealFrankaImageDataset(BaseImageDataset):
             obs_dict[key] = data[key][T_slice].astype(np.float32)
             next_obs_dict[key] = data[key][next_T_slice].astype(np.float32)
 
-            # Compute relative action (relative EEF wrt initial position)
-            if key == 'eef':
-                obs_dict[key] = self.compute_action_relative_to_initial_eef(obs_dict[key], self.FIXED_INITIAL_EEF)
-                next_obs_dict[key] = self.compute_action_relative_to_initial_eef(next_obs_dict[key], self.FIXED_INITIAL_EEF)
+            # Compute relative action (relative EEF wrt initial position) TODO
+            # if key == 'eef':
+            #     obs_dict[key] = self.compute_action_relative_to_initial_eef(obs_dict[key], self.FIXED_INITIAL_EEF)
+            #     next_obs_dict[key] = self.compute_action_relative_to_initial_eef(next_obs_dict[key], self.FIXED_INITIAL_EEF)
             # save ram
             del data[key]
 
@@ -295,10 +303,10 @@ class RealFrankaImageDataset(BaseImageDataset):
         # labels = data['label'].astype(np.uint8)
         # labels = labels[T_slice]
 
-        assert 'mass' not in obs_dict
-        # if 'mass' in obs_dict:
-        #     obs_dict['mass'] = self.encode_mass(obs_dict['mass'])
-        #     next_obs_dict['mass'] = self.encode_mass(next_obs_dict['mass'])
+        # assert 'mass' not in obs_dict
+        if 'mass' in obs_dict:
+            obs_dict['mass'] = self.encode_mass(obs_dict['mass'])
+            next_obs_dict['mass'] = self.encode_mass(next_obs_dict['mass'])
 
         # handle latency by dropping first n_latency_steps action
         # observations are already taken care of by T_slice

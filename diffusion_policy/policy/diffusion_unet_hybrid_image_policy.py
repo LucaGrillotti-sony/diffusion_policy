@@ -45,7 +45,7 @@ class DiffusionUnetHybridImagePolicy(BaseImagePolicy):
             obs_encoder_group_norm=False,
             eval_fixed_crop=False,
             gamma=0.99,
-            weight_classification_free_guidance_sampling=0,
+            weight_classification_free_guidance_sampling=1.,
             # parameters passed to step
             **kwargs):
         super().__init__()
@@ -207,8 +207,8 @@ class DiffusionUnetHybridImagePolicy(BaseImagePolicy):
 
         if "neutral_global_cond" in kwargs:
             do_classification_free_guidance = True
-            neutral_global_cond = kwargs["neutral_global_cond"]
-            neutral_local_cond = kwargs["neutral_local_cond"]
+            neutral_global_cond = kwargs.pop("neutral_global_cond")
+            neutral_local_cond = kwargs.pop("neutral_local_cond")
             assert self.weight_classification_free_guidance_sampling is not None
         else:
             do_classification_free_guidance = False
