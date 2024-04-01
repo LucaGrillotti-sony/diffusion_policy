@@ -80,8 +80,8 @@ policy:
   eta_coeff_critic: 0.001
   cond_predict_scale: true
   crop_shape:
-    - 216
-    - 288
+    - 400
+    - 400
   diffusion_step_embed_dim: 128
   down_dims:
     - 512
@@ -101,35 +101,23 @@ policy:
       camera_0:
         shape:
           - 3
-          - 240
-          - 320
+          - 400
+          - 400
+        type: rgb
+      camera_1:
+        shape:
+          - 1
+          - 400
+          - 400
         type: rgb
       eef:
         shape:
          - 7
         type: low_dim
-      # camera_1:
-      #   shape:
-      #     - 3
-      #     - 240
-      #     - 320
-      #   type: rgb
       mass:
         shape:
           - 256  # after RFF
         type: low_dim
-#      camera_2:
-#        shape:
-#          - 3
-#          - 240
-#          - 320
-#        type: rgb
-#      camera_3:
-#        shape:
-#          - 3
-#          - 240
-#          - 320
-#        type: rgb
 
   # noise_scheduler:
   #   _target_: diffusers.schedulers.scheduling_ddim.DDIMScheduler
@@ -176,14 +164,14 @@ critic:
       camera_0:
         shape:
           - 3
-          - 240
-          - 320
+          - 400
+          - 400
         type: rgb
       camera_1:
         shape:
-          - 3
-          - 240
-          - 320
+          - 1
+          - 400
+          - 400
         type: rgb
       mass:
         shape:
@@ -210,31 +198,19 @@ task:
         camera_0:
           shape:
             - 3
-            - 240
-            - 320
+            - 400
+            - 400
           type: rgb
-        # camera_1:
-        #   shape:
-        #     - 3
-        #     - 240
-        #     - 320
-        #   type: rgb
+        camera_1:
+          shape:
+            - 1
+            - 400
+            - 400
+          type: rgb
         mass:
           shape:
             - 256 # after RFF
           type: low_dim
-#        camera_2:
-#          shape:
-#            - 3
-#            - 240
-#            - 320
-#          type: rgb
-#        camera_3:
-#          shape:
-#            - 3
-#            - 240
-#            - 320
-#          type: rgb
         eef:
           shape:
             - 7
