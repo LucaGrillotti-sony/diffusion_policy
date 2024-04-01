@@ -101,9 +101,18 @@ def convert_image(cv_bridge: CvBridge, msg_ros, is_depth=False):
     if img_np is None:
         return None
 
+    depth_min_max = [100.0, 500.0]
+
     if is_depth:
         # print("DEPTH", img_np.shape)
-        ...
+        depth = np.expand_dims(img_np, axis=-1).astype(np.float32)
+        depth = np.clip(depth, a_min=depth_min_max[0], a_max=depth_min_max[1])
+        depth_nan_mask = np.isnan(depth).astype(np.uint8)
+        kernel = np.ones((3, 3), "uint8")
+        depth_nan_mask = cv2.dilate(depth_nan_mask, kernel, iterations=1)
+        depth[depth_nan_mask == 1] = 0
+        depth_scale = np.abs(depth).max()
+        img_np = cv2.inpaint(depth / depth_scale, depth_nan_mask, 1, cv2.INPAINT_NS) * depth_scale
 
     img_np = img_np[250:650, 0:400]
     # img_np = cv2.resize(img_np, (320, 240), interpolation=cv2.INTER_AREA)
@@ -149,24 +158,24 @@ def make_video(list_images: List[ImageWithTimestamp], name, fps, is_color=True):
     out = cv2.VideoWriter(name, cv2.VideoWriter_fourcc(*'mp4v'), fps, (size[1], size[0]), isColor=is_color)
     for _image_data in list_images:
         # out.write(np.uint8(np.clip(_image_data.img_np, 0., 1.) * 255))
-        if not is_color:
-            original_image = _image_data.img_np
-            original_image_with_border = cv2.copyMakeBorder(original_image, 1, 1, 1, 1, cv2.BORDER_DEFAULT)
-
-            img_np = np.clip(original_image, 100, 500)
-
-            # print(img_np.shape)
-            img_np = (img_np - np.min(img_np)) / (np.max(img_np) - np.min(img_np))
-            img_np = cv2.copyMakeBorder(img_np, 1, 1, 1, 1, cv2.BORDER_DEFAULT)
-            mask = original_image_with_border == 0.
-            mask = mask.astype(np.uint8)
-            kernel = np.ones((3, 3), 'uint8')
-            mask = cv2.dilate(mask, kernel, iterations=1)
-            img_np = cv2.inpaint(img_np.astype(np.float32), mask, 1, cv2.INPAINT_NS)
-            img_np = img_np[1:-1, 1:-1]
-            img_np = 255 * img_np
-        else:
-            img_np = _image_data.img_np
+        # if not is_color:
+        #     original_image = _image_data.img_np
+        #     original_image_with_border = cv2.copyMakeBorder(original_image, 1, 1, 1, 1, cv2.BORDER_DEFAULT)
+        #
+        #     img_np = np.clip(original_image, 100, 500)
+        #
+        #     # print(img_np.shape)
+        #     img_np = (img_np - np.min(img_np)) / (np.max(img_np) - np.min(img_np))
+        #     img_np = cv2.copyMakeBorder(img_np, 1, 1, 1, 1, cv2.BORDER_DEFAULT)
+        #     mask = original_image_with_border == 0.
+        #     mask = mask.astype(np.uint8)
+        #     kernel = np.ones((3, 3), 'uint8')
+        #     mask = cv2.dilate(mask, kernel, iterations=1)
+        #     img_np = cv2.inpaint(img_np.astype(np.float32), mask, 1, cv2.INPAINT_NS)
+        #     img_np = img_np[1:-1, 1:-1]
+        #     img_np = 255 * img_np
+        # else:
+        img_np = _image_data.img_np
         out.write(np.uint8(img_np))
     out.release()
 
@@ -237,8 +246,10 @@ def treat_folder(path_load, path_save, index_episode):
     # data_img["azure_07"] = get_list_data_img(cv_bridge, images_azure_07, time_offset=start_time)
     # data_img["azure_08"] = get_list_data_img(cv_bridge, images_azure_08, time_offset=start_time)
     data_img["images_hand_eye_rgb"] = get_list_data_img(cv_bridge, images_hand_eye_rgb, time_offset=start_time)
-    data_img["images_hand_eye_depth"] = get_list_data_img(cv_bridge, images_hand_eye_depth, time_offset=start_time, is_depth=True)
-
+    data_img["images_hand_eye_depth"] = get_list_data_img(cv_bridge,
+                                                          images_hand_eye_depth,
+                                                          time_offset=start_time,
+                                                          is_depth=True)
 
     fps_dict = dict()
     # fps_dict["azure_06"] = 30
@@ -270,7 +281,7 @@ def treat_folder(path_load, path_save, index_episode):
             print("is_nan", np.any(np.isnan(img_np)))
             img_np = np.clip(img_np, 0., 1.)
         else:
-            is_color=True
+            is_color = True
 
 
         make_video(data_img[key], name=str(_path_folder / name_file), fps=fps_dict[key], is_color=is_color)
