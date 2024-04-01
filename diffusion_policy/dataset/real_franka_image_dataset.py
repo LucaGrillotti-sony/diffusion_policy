@@ -277,14 +277,29 @@ class RealFrankaImageDataset(BaseImageDataset):
 
         obs_dict = dict()
         next_obs_dict = dict()
+
+
         for key in self.rgb_keys:
             # move channel last to channel first
             # T,H,W,C
             # convert uint8 image to float32
-            obs_dict[key] = np.moveaxis(data[key][T_slice],-1,1
+            # TODO: temporary fix to add depth image; change camera_1 for camera_0_depth
+            if key == "camera_0":
+                obs_dict["camera_0"] = np.concatenate([data["camera_0"][T_slice], data["camera_1"][T_slice]], axis=-1)
+                next_obs_dict["camera_0"] = np.concatenate([data["camera_0"][next_T_slice], data["camera_1"][next_T_slice]],
+                                                           axis=-1)
+                obs_dict[key] = np.moveaxis(obs_dict["camera_0"], -1, 1).astype(np.float32) / 255.
+                next_obs_dict[key] = np.moveaxis(next_obs_dict["camera_0"], -1, 1).astype(np.float32) / 255.
+            else:
+                obs_dict[key] = np.moveaxis(data[key][T_slice],-1,1
                 ).astype(np.float32) / 255.
-            next_obs_dict[key] = np.moveaxis(data[key][next_T_slice], -1, 1
+                next_obs_dict[key] = np.moveaxis(data[key][next_T_slice], -1, 1
                 ).astype(np.float32) / 255.
+
+            # obs_dict[key] = np.moveaxis(data[key][T_slice],-1,1
+            #     ).astype(np.float32) / 255.
+            # next_obs_dict[key] = np.moveaxis(data[key][next_T_slice], -1, 1
+            #     ).astype(np.float32) / 255.
             # T,C,H,W
             # save ram
             del data[key]
@@ -315,7 +330,7 @@ class RealFrankaImageDataset(BaseImageDataset):
         else:
             action = action[:self.horizon]
 
-        action = self.compute_action_relative_to_initial_eef(action, action[0])
+        # action = self.compute_action_relative_to_initial_eef(action, action[0])
         # action = self.compute_action_relative_to_initial_eef(action, self.FIXED_INITIAL_EEF)
 
         torch_data = {

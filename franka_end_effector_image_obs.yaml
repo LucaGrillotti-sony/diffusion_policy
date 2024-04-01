@@ -100,13 +100,7 @@ policy:
     obs:
       camera_0:
         shape:
-          - 3
-          - 400
-          - 400
-        type: rgb
-      camera_1:
-        shape:
-          - 1
+          - 4
           - 400
           - 400
         type: rgb
@@ -163,13 +157,7 @@ critic:
     obs:
       camera_0:
         shape:
-          - 3
-          - 400
-          - 400
-        type: rgb
-      camera_1:
-        shape:
-          - 1
+          - 4
           - 400
           - 400
         type: rgb
@@ -197,13 +185,7 @@ task:
       obs:
         camera_0:
           shape:
-            - 3
-            - 400
-            - 400
-          type: rgb
-        camera_1:
-          shape:
-            - 1
+            - 4
             - 400
             - 400
           type: rgb
