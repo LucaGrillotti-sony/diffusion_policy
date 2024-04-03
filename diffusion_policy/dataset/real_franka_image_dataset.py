@@ -228,21 +228,22 @@ class RealFrankaImageDataset(BaseImageDataset):
         import multiprocessing as mp
         # def f(i):
         #     return self[i]
-        with mp.Pool(16) as pool:
-            all_sequences = pool.map(self.__getitem__, list(range(self.__len__())))
+        # with mp.Pool(16) as pool:
+        #     all_sequences = pool.map(self.__getitem__, list(range(self.__len__())))
 
-        all_relative_action_seq = list()
-        # all_relative_eef = list()
-        for _seq in all_sequences:
-            relative_seq = _seq['action']
-            # relative_eef = _seq['obs']['eef']  # TODO: find 
-            all_relative_action_seq.append(relative_seq)
-            # all_relative_eef.append(relative_eef)
-        all_relative_actions = np.concatenate(all_relative_action_seq, axis=0)
+        # all_relative_action_seq = list()
+        # # all_relative_eef = list()
+        # for _seq in all_sequences:
+        #     relative_seq = _seq['action']
+        #     # relative_eef = _seq['obs']['eef']  # TODO: find 
+        #     all_relative_action_seq.append(relative_seq)
+        #     # all_relative_eef.append(relative_eef)
+        # all_relative_actions = np.concatenate(all_relative_action_seq, axis=0)
         # all_relative_eef = np.concatenate(all_relative_eef, axis=0)
-        normalizer['action'] = SingleFieldLinearNormalizer.create_fit(all_relative_actions)
+        # normalizer['action'] = SingleFieldLinearNormalizer.create_fit(all_relative_actions)
         # print("initial_eef", all_relative_eef[0])
 
+        normalizer['action'] = SingleFieldLinearNormalizer.create_fit(self.replay_buffer['action'])
         
         # obs
         for key in self.lowdim_keys:
@@ -265,6 +266,8 @@ class RealFrankaImageDataset(BaseImageDataset):
         return len(self.sampler)
 
     def __getitem__(self, idx: int) -> Dict[str, torch.Tensor]:
+        # import time
+        # print(time.time(), self.__len__())
         threadpool_limits(1)
         data = self.sampler.sample_sequence(idx)
 
@@ -284,9 +287,11 @@ class RealFrankaImageDataset(BaseImageDataset):
             # T,H,W,C
             # convert uint8 image to float32
             # TODO: temporary fix to add depth image; change camera_1 for camera_0_depth
+            if key == "camera_1":
+                continue
             if key == "camera_0":
-                obs_dict["camera_0"] = np.concatenate([data["camera_0"][T_slice], data["camera_1"][T_slice]], axis=-1)
-                next_obs_dict["camera_0"] = np.concatenate([data["camera_0"][next_T_slice], data["camera_1"][next_T_slice]],
+                obs_dict["camera_0"] = np.concatenate([data["camera_0"][T_slice], np.expand_dims(np.mean(data["camera_1"][T_slice], axis=-1), axis=-1)], axis=-1)
+                next_obs_dict["camera_0"] = np.concatenate([data["camera_0"][next_T_slice], np.expand_dims(np.mean(data["camera_1"][next_T_slice], axis=-1), axis=-1)],
                                                            axis=-1)
                 obs_dict[key] = np.moveaxis(obs_dict["camera_0"], -1, 1).astype(np.float32) / 255.
                 next_obs_dict[key] = np.moveaxis(next_obs_dict["camera_0"], -1, 1).astype(np.float32) / 255.

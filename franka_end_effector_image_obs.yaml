@@ -79,9 +79,7 @@ policy:
   _target_: diffusion_policy.policy.diffusion_unet_hybrid_image_policy.DiffusionUnetHybridImagePolicy
   eta_coeff_critic: 0.001
   cond_predict_scale: true
-  crop_shape:
-    - 400
-    - 400
+  crop_shape: null
   diffusion_step_embed_dim: 128
   down_dims:
     - 512
@@ -185,7 +183,13 @@ task:
       obs:
         camera_0:
           shape:
-            - 4
+            - 3
+            - 400
+            - 400
+          type: rgb
+        camera_1:
+          shape:
+            - 3
             - 400
             - 400
           type: rgb
@@ -203,7 +207,7 @@ task:
         type: low_dim
 #    dataset_path: /home/ros/humble/src/diffusion_policy/data/smaller_dataset
 #    dataset_path: /home/sony-unicorn/ros/humble/src/diffusion_policy/data/fake_puree_experiments/diffusion_policy_dataset/
-    dataset_path: /home/ros/humble/src/diffusion_policy/data/fake_puree_experiments/diffusion_policy_dataset_exp2_v1/
+    dataset_path: /home/ros/humble/src/diffusion_policy/data/fake_puree_experiments/diffusion_policy_dataset_exp2_v2/
     dt: 0.1
     horizon: 16
     n_obs_steps: 2

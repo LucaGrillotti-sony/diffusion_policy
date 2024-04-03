@@ -101,18 +101,25 @@ def convert_image(cv_bridge: CvBridge, msg_ros, is_depth=False):
     if img_np is None:
         return None
 
-    depth_min_max = [100.0, 500.0]
+    depth_min_max = [150.0, 300.0]
 
     if is_depth:
         # print("DEPTH", img_np.shape)
         depth = np.expand_dims(img_np, axis=-1).astype(np.float32)
+        depth_nan_mask = (depth < 3.).astype(np.uint8)
         depth = np.clip(depth, a_min=depth_min_max[0], a_max=depth_min_max[1])
-        depth_nan_mask = np.isnan(depth).astype(np.uint8)
+
         kernel = np.ones((3, 3), "uint8")
         depth_nan_mask = cv2.dilate(depth_nan_mask, kernel, iterations=1)
-        depth[depth_nan_mask == 1] = 0
-        depth_scale = np.abs(depth).max()
-        img_np = cv2.inpaint(depth / depth_scale, depth_nan_mask, 1, cv2.INPAINT_NS) * depth_scale
+        depth[depth_nan_mask == 1] = np.abs(depth).max()
+        depth_max = np.abs(depth).max()
+        depth_min = np.abs(depth).min()
+
+        depth = (depth - depth_min) / (depth_max - depth_min)
+        img_np = cv2.inpaint(depth, depth_nan_mask, 1, cv2.INPAINT_NS)
+        img_np = np.clip(img_np, a_min=0., a_max=1.)
+        # img_np = depth
+        img_np = np.asarray(255. * img_np, dtype=np.int32)
 
     # print("IMG NP Shape", img_np.shape)
     side_size = 400
@@ -371,8 +378,8 @@ def read_masses_csv(path_csv):
 
 
 def main():
-    PATH_TO_LOAD = pathlib.Path("/home/ros/humble/src/diffusion_policy/data/experiment_2/bags_kinesthetic_v1/").absolute()
-    PATH_SAVE = pathlib.Path("/home/ros/humble/src/diffusion_policy/data/fake_puree_experiments/diffusion_policy_dataset_exp2_v1/").absolute()
+    PATH_TO_LOAD = pathlib.Path("/home/ros/humble/src/diffusion_policy/data/experiment_2/bags_kinesthetic_v2/").absolute()
+    PATH_SAVE = pathlib.Path("/home/ros/humble/src/diffusion_policy/data/fake_puree_experiments/diffusion_policy_dataset_exp2_v2/").absolute()
     
     PATH_MASSES_CSV = PATH_TO_LOAD / "masses_per_demo.csv"
     masses_per_demo = read_masses_csv(PATH_MASSES_CSV)
