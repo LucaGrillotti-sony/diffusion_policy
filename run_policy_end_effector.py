@@ -265,7 +265,7 @@ class EnvControlWrapperWithCameras(EnvControlWrapper):
 
         camera_0_full_data = RealFrankaImageDataset.concatenate_rgb_depth(camera_0_data, camera_0_depth_data)
         camera_0_full_data = RealFrankaImageDataset.moveaxis_rgbd(camera_0_full_data)
-        camera_0_full_data = RealFrankaImageDataset.rgb_255_to_1(camera_0_full_data)
+        camera_0_full_data = RealFrankaImageDataset.rgbd_255_to_1(camera_0_full_data)
 
         return {
             'eef': pos_end_effector.astype(np.float32),

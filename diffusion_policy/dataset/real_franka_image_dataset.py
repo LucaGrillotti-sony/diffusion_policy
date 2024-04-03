@@ -274,7 +274,7 @@ class RealFrankaImageDataset(BaseImageDataset):
         return np.moveaxis(data, -1, 1)
 
     @staticmethod
-    def rgb_255_to_1(data):
+    def rgbd_255_to_1(data):
         return data.astype(np.float32) / 255.
 
     def __getitem__(self, idx: int) -> Dict[str, torch.Tensor]:
@@ -305,11 +305,11 @@ class RealFrankaImageDataset(BaseImageDataset):
                 obs_dict["camera_0"] = self.concatenate_rgb_depth(data["camera_0"][T_slice], data["camera_1"][T_slice])
                 next_obs_dict["camera_0"] = self.concatenate_rgb_depth(data["camera_0"][next_T_slice], data["camera_1"][next_T_slice])
 
-                obs_dict[key] = self.rgb_255_to_1(self.moveaxis_rgbd(obs_dict["camera_0"]))
-                next_obs_dict[key] = self.rgb_255_to_1(self.moveaxis_rgbd(next_obs_dict["camera_0"]))
+                obs_dict[key] = self.rgbd_255_to_1(self.moveaxis_rgbd(obs_dict["camera_0"]))
+                next_obs_dict[key] = self.rgbd_255_to_1(self.moveaxis_rgbd(next_obs_dict["camera_0"]))
             else:
-                obs_dict[key] = self.rgb_255_to_1(self.moveaxis_rgbd(data[key][T_slice]))
-                next_obs_dict[key] = self.rgb_255_to_1(self.moveaxis_rgbd(data[key][next_T_slice]))
+                obs_dict[key] = self.rgbd_255_to_1(self.moveaxis_rgbd(data[key][T_slice]))
+                next_obs_dict[key] = self.rgbd_255_to_1(self.moveaxis_rgbd(data[key][next_T_slice]))
 
             # obs_dict[key] = np.moveaxis(data[key][T_slice],-1,1
             #     ).astype(np.float32) / 255.

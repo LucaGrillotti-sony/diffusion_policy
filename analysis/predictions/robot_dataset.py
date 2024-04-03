@@ -1,21 +1,11 @@
-import queue
-import os
-import os.path as osp
 import sys
 
-import click
 import dill
-import gym
 import torch
-from gym import spaces
 from tqdm import tqdm
 
-from diffusion_policy.common.pytorch_util import dict_apply, custom_tree_map
+from diffusion_policy.common.pytorch_util import dict_apply
 from diffusion_policy.dataset.real_franka_image_dataset import RealFrankaImageDataset
-from diffusion_policy.env_runner.real_robot_runner import RealRobot
-from diffusion_policy.workspace.train_diffusion_transformer_lowdim_workspace import \
-    TrainDiffusionTransformerLowdimWorkspace
-from diffusion_policy.workspace.train_diffusion_unet_lowdim_workspace import TrainDiffusionUnetLowdimWorkspace
 
 # use line-buffering for both stdout and stderr
 sys.stdout = open(sys.stdout.fileno(), mode='w', buffering=1)
@@ -30,7 +20,6 @@ from diffusion_policy.workspace.base_workspace import BaseWorkspace
 OmegaConf.register_new_resolver("eval", eval, replace=True)
 
 import numpy as np
-import numpy.linalg as la
 
 import matplotlib.pyplot as plt
 
@@ -51,6 +40,7 @@ def load_obs(obs_path: pathlib.Path, times_to_evaluate: np.ndarray):
         [_col_data.reshape(-1, 1) for _col_data in all_data]
     )
     return array_all_data
+
 
 def get_dataset(dataset_dir):
     obs_size = 7
@@ -87,7 +77,7 @@ def get_dataset(dataset_dir):
 
     return all_episodes
 
-def get_one_episode(dataset: RealFrankaImageDataset, n_action_steps: int, n_latency_steps: int, n_obs_steps: int, mass, index_episode: int = 0):
+def get_one_episode(dataset: RealFrankaImageDataset, mass, index_episode: int = 0):
     sampler = dataset.sampler
     replay_buffer = dataset.replay_buffer
     episode_ends = replay_buffer.episode_ends[:]
@@ -96,33 +86,8 @@ def get_one_episode(dataset: RealFrankaImageDataset, n_action_steps: int, n_late
     index_start = episode_ends[index_episode]
     index_end = episode_ends[index_episode + 1]
 
-    index_sample_start = index_start
-    index_sample_end = index_start + n_obs_steps + n_action_steps
-
-    keys = ("camera_0",)
-    print("index_sample end", index_sample_end, index_end)
-    one_episode = list()
-    while index_sample_end < index_end:
-        new_obs = {}
-        for key in keys:
-            if key in ("camera_0", "camera_1"):
-                new_obs[key] = replay_buffer[key][index_sample_start:index_sample_start + n_obs_steps] / 255.0
-            else:
-                new_obs[key] = replay_buffer[key][index_sample_start:index_sample_start + n_obs_steps]
-
-        one_episode.append({
-            'obs': new_obs,
-            'action': replay_buffer['action'],
-        })
-
-        index_sample_start += n_action_steps
-        index_sample_end += n_action_steps
-    print(replay_buffer["camera_0"][index_start:index_end].shape)
-
-    print("original mass", replay_buffer["mass"][index_start:index_end])
-
     if mass is None:
-        ... # TODO
+        raise NotImplementedError("Mass is None")
         # mass_obs = dataset.encode_mass(replay_buffer["mass"][index_start:index_end])
     else:
         new_mass = np.full_like(replay_buffer["mass"][index_start:index_end], mass)
@@ -134,21 +99,26 @@ def get_one_episode(dataset: RealFrankaImageDataset, n_action_steps: int, n_late
         mass_obs = dataset.rff_encoder.encode_vector(mass_v)
         neutral_mass_obs = dataset.rff_encoder.encode_vector(neutral_mass_v)
 
-
+    camera_0_rgb = replay_buffer["camera_0"][index_start:index_end]
+    camera_0_depth = replay_buffer["camera_1"][index_start:index_end]
+    camera_0_data = RealFrankaImageDataset.concatenate_rgb_depth(camera_0_rgb, camera_0_depth)
+    camera_0_data = RealFrankaImageDataset.moveaxis_rgbd(camera_0_data)
+    camera_0_data = RealFrankaImageDataset.rgbd_255_to_1(camera_0_data)
 
     return {
-        "obs": {
-            "camera_0": np.transpose(replay_buffer["camera_0"][index_start:index_end], (0, 3, 1, 2)) / 255.0,
-            "eef": replay_buffer["eef"][index_start:index_end], # + np.asarray([0.05, -0.05, 0., 0., 0., 0., 0.,]),
+        "obs": {  # TODO: update this too
+            "camera_0": camera_0_data,
+            "eef": replay_buffer["eef"][index_start:index_end],
             "mass": mass_obs,
         },
         "action": replay_buffer['action'][index_start:index_end],
-        "neutral_obs": {
-            "camera_0": np.transpose(replay_buffer["camera_0"][index_start:index_end], (0, 3, 1, 2)) / 255.0,
-            "eef": replay_buffer["eef"][index_start:index_end], # + np.asarray([0.05, -0.05, 0., 0., 0., 0., 0.,]),
+        "neutral_obs": {  # TODO: update this too
+            "camera_0": camera_0_data,
+            "eef": replay_buffer["eef"][index_start:index_end],
             "mass": neutral_mass_obs,
         },
     }
+
 
 def _get_mass_encoding(mass, rff_encoder):
     if mass is None:
@@ -158,17 +128,10 @@ def _get_mass_encoding(mass, rff_encoder):
 
     return rff_encoder.encode_vector(_mass_encoding)[0]
 
+
 def main():
-    # ckpt_path = "/home/lucagrillotti/ros/humble/src/diffusion_policy/results/13.09.31_train_diffusion_unet_lowdim_kitchen_lowdim/checkpoints/latest.ckpt"
-    # ckpt_path = "/home/lucagrillotti/projects/diffusion_policy/data/outputs/2023.12.21/12.21_12.11.57_end_effector_control/checkpoints/latest.ckpt"
-    # ckpt_path = "/home/lucagrillotti/projects/diffusion_policy/data/outputs/2023.12.22/17.22.09_train_diffusion_unet_lowdim_kitchen_lowdim/checkpoints/latest.ckpt"
-    # ckpt_path = "/home/ros/humble/src/diffusion_policy/data/outputs/2024.03.07/17.56.19_train_diffusion_unet_image_franka_kitchen_lowdim_ok/checkpoints/latest.ckpt"  # basic, no reward, ddpm
-    # ckpt_path = "/home/ros/humble/src/diffusion_policy/data/outputs/2024.03.18/13.16.19_train_diffusion_unet_image_franka_kitchen_lowdim/checkpoints/latest.ckpt"
-    ckpt_path = "/home/ros/humble/src/diffusion_policy/data/outputs/2024.03.25/20.36.14_train_diffusion_unet_image_franka_kitchen_lowdim/checkpoints/latest.ckpt"
-    
-    # dataset_dir = "/data/kitchen/kitchen_demos_multitask/cartesian_control/"
-    # dataset_dir = "/home/lucagrillotti/projects/diffusion_policy/data/kitchen/kitchen_demos_multitask/cartesian_control_all"
-    dataset_dir = "/home/ros/humble/src/diffusion_policy/data/fake_puree_experiments/diffusion_policy_dataset_exp2_v1/"
+
+    dataset_dir = "/home/ros/humble/src/diffusion_policy/data/fake_puree_experiments/diffusion_policy_dataset_exp2_v2/"
 
     payload = torch.load(open(ckpt_path, 'rb'), pickle_module=dill)
     cfg = payload['cfg']
@@ -183,7 +146,7 @@ def main():
     # list_episodes = get_dataset(dataset_dir)
     mass=3.1
     index_episode=56
-    one_episode = get_one_episode(dataset, 8, 0, 2, mass=mass, index_episode=index_episode)
+    one_episode = get_one_episode(dataset, mass=mass, index_episode=index_episode)
 
     sequence_observations = one_episode["obs"]
     sequence_neutral_observations = one_episode["neutral_obs"]
@@ -217,17 +180,17 @@ def main():
             obs_dict = dict_apply(np_obs_dict,
                                   lambda x: torch.from_numpy(x).cuda())
             neutral_obs_dict = dict_apply(np_neutral_obs_dict,
-                        lambda x: torch.from_numpy(x).cuda())
+                                          lambda x: torch.from_numpy(x).cuda())
             
             action_dict = policy.predict_action(obs_dict, neutral_obs_dict)
             np_action_dict = dict_apply(action_dict,
                                         lambda x: x.detach().to('cpu').numpy())
 
-            predicted_actions = np_action_dict['action'].squeeze()
-            print("SHAPES", predicted_actions.shape, initial_eef.shape)
+            absolute_actions = np_action_dict['action'].squeeze()
+            print("SHAPES", absolute_actions.shape, initial_eef.shape)
 
-            predicted_actions = RealFrankaImageDataset.compute_absolute_action(predicted_actions, initial_eef)
-            print("predicted_actions", predicted_actions.shape)
+            # predicted_actions = RealFrankaImageDataset.compute_absolute_action(predicted_actions, initial_eef)
+            # print("predicted_actions", predicted_actions.shape)
 
         legend = [
             "x",
@@ -239,8 +202,8 @@ def main():
             "q4"
         ]
         for index_action, c in enumerate(color):
-            plt.plot(np.arange(len(predicted_actions)) + index_start, predicted_actions[:, index_action], c=c, linestyle="dotted")
-            plt.plot(np.arange(len(predicted_actions)) + index_start, sequence_actions[index_start:index_start+n_action_steps, index_action], c=c)
+            plt.plot(np.arange(len(absolute_actions)) + index_start, absolute_actions[:, index_action], c=c, linestyle="dotted")
+            plt.plot(np.arange(len(absolute_actions)) + index_start, sequence_actions[index_start:index_start+n_action_steps, index_action], c=c)
     
 
 
