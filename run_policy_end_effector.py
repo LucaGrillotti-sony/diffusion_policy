@@ -422,15 +422,15 @@ class DiffusionController(NodeParameterMixin,
                 np_action_dict = dict_apply(action_dict,
                                             lambda x: x.detach().to('cpu').numpy())
 
-                relative_actions = np_action_dict['action']
+                absolute_actions = np_action_dict['action']
 
                 metrics = np_action_dict['metrics']
                 wandb.log(metrics)
-                if relative_actions.shape[0] == 1:
-                    relative_actions = relative_actions.reshape(*relative_actions.shape[1:])
+                if absolute_actions.shape[0] == 1:
+                    absolute_actions = absolute_actions.reshape(*absolute_actions.shape[1:])
 
-                reference_action = stacked_obs["eef"][0, 0, :]
-                absolute_actions = RealFrankaImageDataset.compute_absolute_action(relative_actions, reference_action)
+                # reference_action = stacked_obs["eef"][0, 0, :]
+                # absolute_actions = RealFrankaImageDataset.compute_absolute_action(relative_actions, reference_action)
                 # absolute_actions = RealFrankaImageDataset.compute_absolute_action(relative_actions, self.env.initial_eef)
 
                 self.env.push_actions([_dq for _dq in absolute_actions])
