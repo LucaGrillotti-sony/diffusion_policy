@@ -79,7 +79,8 @@ class EnvControlWrapper:
                 # 'camera_2': gym.spaces.Box(0, 1, shape=(3, 240, 320), dtype=np.float32),
                 # 'camera_3': gym.spaces.Box(0, 1, shape=(3, 240, 320), dtype=np.float32),
                 'camera_0': gym.spaces.Box(0, 1, shape=(3, 240, 320), dtype=np.float32),
-               # 'mass': gym.spaces.Box( -1, 1, shape=(256,), dtype=np.float32),
+               'mass': gym.spaces.Box( -1, 1, shape=(256,), dtype=np.float32),
+               'mass_neutral': gym.spaces.Box( -1, 1, shape=(256,), dtype=np.float32),
             }
         )
         # self.observation_space = gym.spaces.Box(
@@ -94,7 +95,7 @@ class EnvControlWrapper:
         # self.init_pos = np.asarray([-0.38435703, -0.82782065, 0.25952787, -2.3897604, 0.18524243, 1.5886066, 0.59382302])
         # self.init_pos = np.asarray([-0.08435703, -0.62782065, 0.25952787, -2.3897604, 0.18524243, 1.5886066, 0.59382302])
         # self.init_pos = None  # keep initial position of the robot unchanged before starting the experiment
-        self.init_pos = RealFrankaImageDataset.FIXED_INITIAL_EEF
+        self.init_pos = None
         self._jstate = None
 
         self.n_obs_steps = n_obs_steps
@@ -106,7 +107,9 @@ class EnvControlWrapper:
         self.queue_actions = queue.Queue()
 
         # start with the initial position as a goal
-        self.push_actions([self.init_pos] * 50)
+        # self.initial_eef = RealFrankaImageDataset.FIXED_INITIAL_EEF
+
+        # self.push_actions([self.initial_eef] * 50, force=True)
 
     def reset(self):
         # TODO: handle reset properly
@@ -128,10 +131,11 @@ class EnvControlWrapper:
         else:
             return self._compute_obs()
 
-    def push_actions(self, list_actions):
-        if not self.queue_actions.empty():
+    def push_actions(self, list_actions, force=False):
+        if not self.queue_actions.empty() and not force:
             raise ValueError("Queue actions is not empty, cannot push anything new to it")
-        assert len(list_actions) == self.n_action_steps
+        if not force:
+            assert len(list_actions) == self.n_action_steps
         for action in list_actions:
             self.queue_actions.put(action)
 
@@ -200,7 +204,7 @@ class EnvControlWrapper:
         return self._jstate
 
     def set_jstate(self, msg):
-        print("Setting jstate", msg)
+        # print("Setting jstate", msg)
         self._jstate = msg
 
     def jpc_send_goal(self, jpos):
@@ -228,6 +232,7 @@ class EnvControlWrapperWithCameras(EnvControlWrapper):
         self._kdl = KDLSolver(self.robot_description)
         self._kdl .set_kinematic_chain('panda_link0', 'panda_hand')
 
+        self.mass_encoding_neutral = self._get_mass_encoding(mass=None, rff_encoder=rff_encoder)
         self.mass_encoding = self._get_mass_encoding(mass_goal, rff_encoder)
 
     def _get_mass_encoding(self, mass, rff_encoder):
@@ -275,8 +280,9 @@ class EnvControlWrapperWithCameras(EnvControlWrapper):
             # 'camera_2': camera_2_data.astype(np.float32),
             # 'camera_3': camera_3_data.astype(np.float32),
             'camera_0': camera_0_data.astype(np.float32),
-            # 'mass': self.mass_encoding.astype(np.float32)
-        }
+            'mass': self.mass_encoding.astype(np.float32),
+            'mass_neutral': self.mass_encoding_neutral.astype(np.float32),
+        }        
 
 
 class DiffusionController(NodeParameterMixin,
@@ -388,34 +394,50 @@ class DiffusionController(NodeParameterMixin,
         pos_x = pos[:3]
         pos_q = pos[3:]
 
-        # keys_obs = ("camera_0", )
-        keys_obs = ("camera_0", "eef", )
+        keys_obs = ("camera_0", "eef", "mass")
+        # keys_obs = ("camera_0", "eef", )
 
         if self.env.queue_actions.empty():
             self.get_logger().info("Adding actions to buffer")
             with torch.no_grad():
                 stacked_obs = self.env.request_stacked_obs()
+                
+                stacked_neutral_obs = {
+                    key: value
+                    for key, value in stacked_obs.items()
+                }
+
+                print(list(stacked_obs.keys()), list(obs.keys()))
+
+                del stacked_obs["mass_neutral"]
+                del stacked_neutral_obs["mass"]
+                stacked_neutral_obs["mass"] = stacked_neutral_obs["mass_neutral"]
+
+                # stacked_obs["eef"] = RealFrankaImageDataset.compute_action_relative_to_initial_eef(stacked_obs["eef"], self.env.initial_eef)
                 stacked_obs = dict_apply(stacked_obs, lambda x: x.reshape(1, *x.shape))
+                stacked_neutral_obs = dict_apply(stacked_neutral_obs, lambda x: x.reshape(1, *x.shape))
 
                 # print("To", To)
                 for key, value in stacked_obs.items():
-                    if key in ("mass",):
-                        continue
-                    elif key in ("eef",):
-                        stacked_obs[key] = RealFrankaImageDataset.compute_action_relative_to_initial_eef(stacked_obs[key], RealFrankaImageDataset.FIXED_INITIAL_EEF)
+                    if key in ("mass", "eef",):
                         continue
                     stacked_obs[key] = np.transpose(stacked_obs[key], (0, 1, 4, 2, 3)) / 255.
-                    print(key, stacked_obs[key][0])
+                    stacked_neutral_obs[key] = np.transpose(stacked_neutral_obs[key], (0, 1, 4, 2, 3)) / 255.
+                    print(key, np.min(stacked_obs[key][0]), np.max(stacked_obs[key][0]))
 
                 filtered_stacked_obs = dict()
+                filtered_stacked_neutral_obs = dict()
                 for key, value in stacked_obs.items():
                     if key in keys_obs:
                         filtered_stacked_obs[key] = stacked_obs[key]
+                        filtered_stacked_neutral_obs[key] = stacked_neutral_obs[key]
                     else:
                         ...
 
                 # device transfer
                 obs_dict = dict_apply(filtered_stacked_obs,
+                                      lambda x: torch.from_numpy(x).cuda())
+                neutral_obs_dict = dict_apply(filtered_stacked_neutral_obs,
                                       lambda x: torch.from_numpy(x).cuda())
 
                 # action_dict = self.policy.predict_action_from_several_samples(obs_dict, self.critic, )
@@ -423,7 +445,7 @@ class DiffusionController(NodeParameterMixin,
                 # print(dict_apply(stacked_obs, lambda x: x.shape))
                 print("eef", stacked_obs["eef"])
 
-                action_dict = self.policy.predict_action(obs_dict)
+                action_dict = self.policy.predict_action(obs_dict, neutral_obs_dict)
                 np_action_dict = dict_apply(action_dict,
                                             lambda x: x.detach().to('cpu').numpy())
 
@@ -434,8 +456,9 @@ class DiffusionController(NodeParameterMixin,
                 if relative_actions.shape[0] == 1:
                     relative_actions = relative_actions.reshape(*relative_actions.shape[1:])
 
-                # reference_action = stacked_obs["eef"][0, 0, :]
-                absolute_actions = RealFrankaImageDataset.compute_absolute_action(relative_actions, RealFrankaImageDataset.FIXED_INITIAL_EEF)
+                reference_action = stacked_obs["eef"][0, 0, :]
+                absolute_actions = RealFrankaImageDataset.compute_absolute_action(relative_actions, reference_action)
+                # absolute_actions = RealFrankaImageDataset.compute_absolute_action(relative_actions, self.env.initial_eef)
 
                 self.env.push_actions([_dq for _dq in absolute_actions])
 
@@ -451,10 +474,11 @@ class DiffusionController(NodeParameterMixin,
         new_pos = se3(new_pos_x, new_pos_q)
         # new_pos_q = quat.from_float_array(new_pos_q)
         dx = (new_pos_x - pos_x)
+        print("new_pos_x", new_pos_x)
         # dq_rot = (quat.from_float_array(pos_q).conjugate() * quat.from_float_array(init_pos_q))
         # dq_rot = (quat.from_float_array(init_pos_q) * quat.from_float_array(pos_q).conjugate())
         # print(new_pos.q, type(pos_q), type(pos_q.conjugate()))
-        print(new_pos.q)
+        # print(new_pos.q)
         new_pos_q = quat.from_float_array(new_pos_q)
         pos_q = quat.from_float_array(pos_q)
 
@@ -471,7 +495,7 @@ class DiffusionController(NodeParameterMixin,
         # if np.max(np.abs(dq)) < 1e-4:
         #     return
 
-        print(self.current_command, jnts_obs)
+        # print(self.current_command, jnts_obs)
         self.current_command = (0.3 * self.current_command + 0.7 * jnts_obs) + dq
         # self.current_command = dq + jnts_obs
 
@@ -488,11 +512,12 @@ class DiffusionController(NodeParameterMixin,
 def main(args=None):
     # ckpt_path = "/home/ros/humble/src/diffusion_policy/data/outputs/2024.03.18/11.48.28_train_diffusion_unet_image_franka_kitchen_lowdim/checkpoints/latest.ckpt" # With relative actions + EEF absolute inputs (for testing only)
     # ckpt_path = "/home/ros/humble/src/diffusion_policy/data/outputs/2024.03.18/13.16.19_train_diffusion_unet_image_franka_kitchen_lowdim/checkpoints/latest.ckpt" # With relative actions
-    ckpt_path = "/home/ros/humble/src/diffusion_policy/data/outputs/2024.03.19/15.41.17_train_diffusion_unet_image_franka_kitchen_lowdimm/checkpoints/latest.ckpt"  # With relative actions w.r.t. absolute initial position.
+    # ckpt_path = "/home/ros/humble/src/diffusion_policy/data/outputs/2024.03.19/15.41.17_train_diffusion_unet_image_franka_kitchen_lowdim/checkpoints/latest.ckpt"  # With relative actions w.r.t. absolute initial position.
+    ckpt_path = "/home/ros/humble/src/diffusion_policy/data/outputs/2024.03.25/20.36.14_train_diffusion_unet_image_franka_kitchen_lowdim/checkpoints/latest.ckpt"  # With relative actions + mass
 
     n_obs_steps = 2
     n_action_steps = 8
-    path_bag_robot_description = "/home/ros/humble/src/diffusion_policy/data/experiment_2/bags_kinesthetic/rosbag_00/"
+    path_bag_robot_description = "/home/ros/humble/src/diffusion_policy/data/experiment_2/bags_kinesthetic_v0/rosbag_00/"
 
     payload = torch.load(open(ckpt_path, 'rb'), pickle_module=dill)
     cfg = payload['cfg']
@@ -536,7 +561,7 @@ def main(args=None):
                                 n_action_steps=n_action_steps,
                                 path_bag_robot_description=path_bag_robot_description,
                                 rff_encoder=dataset.rff_encoder,
-                                mass_goal=3.1,
+                                mass_goal=None,
                                 ),
         ]
 
