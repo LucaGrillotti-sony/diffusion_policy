@@ -89,7 +89,7 @@ class ImageWithTimestamp:
     timestamp: float
 
 
-def convert_image(cv_bridge: CvBridge, msg_ros, is_depth=False):
+def convert_image(cv_bridge: CvBridge, msg_ros, is_depth=False, side_size=400):
     msg_fmt = "passthrough"
     if is_depth:
         img_np = cv_bridge.imgmsg_to_cv2(msg_ros)
@@ -122,7 +122,6 @@ def convert_image(cv_bridge: CvBridge, msg_ros, is_depth=False):
         img_np = np.asarray(255. * img_np, dtype=np.int32)
 
     # print("IMG NP Shape", img_np.shape)
-    side_size = 400
     middle_width = img_np.shape[0] // 2
     middle_height = img_np.shape[1] // 2
     img_np = img_np[middle_width - (side_size // 2):middle_width + (side_size // 2), middle_height - (side_size // 2):middle_height + (side_size // 2)]

@@ -265,6 +265,18 @@ class RealFrankaImageDataset(BaseImageDataset):
     def __len__(self):
         return len(self.sampler)
 
+    @staticmethod
+    def concatenate_rgb_depth(rgb, depth):
+        return np.concatenate([rgb, np.expand_dims(np.mean(depth, axis=-1), axis=-1)], axis=-1)
+
+    @staticmethod
+    def moveaxis_rgbd(data):
+        return np.moveaxis(data, -1, 1)
+
+    @staticmethod
+    def rgb_255_to_1(data):
+        return data.astype(np.float32) / 255.
+
     def __getitem__(self, idx: int) -> Dict[str, torch.Tensor]:
         # import time
         # print(time.time(), self.__len__())
@@ -290,16 +302,14 @@ class RealFrankaImageDataset(BaseImageDataset):
             if key == "camera_1":
                 continue
             if key == "camera_0":
-                obs_dict["camera_0"] = np.concatenate([data["camera_0"][T_slice], np.expand_dims(np.mean(data["camera_1"][T_slice], axis=-1), axis=-1)], axis=-1)
-                next_obs_dict["camera_0"] = np.concatenate([data["camera_0"][next_T_slice], np.expand_dims(np.mean(data["camera_1"][next_T_slice], axis=-1), axis=-1)],
-                                                           axis=-1)
-                obs_dict[key] = np.moveaxis(obs_dict["camera_0"], -1, 1).astype(np.float32) / 255.
-                next_obs_dict[key] = np.moveaxis(next_obs_dict["camera_0"], -1, 1).astype(np.float32) / 255.
+                obs_dict["camera_0"] = self.concatenate_rgb_depth(data["camera_0"][T_slice], data["camera_1"][T_slice])
+                next_obs_dict["camera_0"] = self.concatenate_rgb_depth(data["camera_0"][next_T_slice], data["camera_1"][next_T_slice])
+
+                obs_dict[key] = self.rgb_255_to_1(self.moveaxis_rgbd(obs_dict["camera_0"]))
+                next_obs_dict[key] = self.rgb_255_to_1(self.moveaxis_rgbd(next_obs_dict["camera_0"]))
             else:
-                obs_dict[key] = np.moveaxis(data[key][T_slice],-1,1
-                ).astype(np.float32) / 255.
-                next_obs_dict[key] = np.moveaxis(data[key][next_T_slice], -1, 1
-                ).astype(np.float32) / 255.
+                obs_dict[key] = self.rgb_255_to_1(self.moveaxis_rgbd(data[key][T_slice]))
+                next_obs_dict[key] = self.rgb_255_to_1(self.moveaxis_rgbd(data[key][next_T_slice]))
 
             # obs_dict[key] = np.moveaxis(data[key][T_slice],-1,1
             #     ).astype(np.float32) / 255.

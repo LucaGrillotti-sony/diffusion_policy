@@ -64,7 +64,6 @@ from cv_bridge import CvBridge
 
 import diffusion_policy.workspace.train_diffusion_unet_hybrid_workspace
 
-
 import PyKDL
 from kdl_solver import KDLSolver
 import copy
@@ -74,13 +73,10 @@ class EnvControlWrapper:
     def __init__(self, jpc_pub, n_obs_steps, n_action_steps):
         self.observation_space = gym.spaces.Dict(
             {
-                'eef': gym.spaces.Box( -8, 8, shape=(7,), dtype=np.float32),
-                # 'camera_1': gym.spaces.Box(0, 1, shape=(3, 240, 320), dtype=np.float32),
-                # 'camera_2': gym.spaces.Box(0, 1, shape=(3, 240, 320), dtype=np.float32),
-                # 'camera_3': gym.spaces.Box(0, 1, shape=(3, 240, 320), dtype=np.float32),
-                'camera_0': gym.spaces.Box(0, 1, shape=(3, 240, 320), dtype=np.float32),
-               'mass': gym.spaces.Box( -1, 1, shape=(256,), dtype=np.float32),
-               'mass_neutral': gym.spaces.Box( -1, 1, shape=(256,), dtype=np.float32),
+                'eef': gym.spaces.Box(-8, 8, shape=(7,), dtype=np.float32),
+                'camera_0': gym.spaces.Box(0, 1, shape=(4, 240, 320), dtype=np.float32),
+                'mass': gym.spaces.Box( -1, 1, shape=(256,), dtype=np.float32),
+                'mass_neutral': gym.spaces.Box( -1, 1, shape=(256,), dtype=np.float32),
             }
         )
         # self.observation_space = gym.spaces.Box(
@@ -219,18 +215,17 @@ class EnvControlWrapper:
 
 
 class EnvControlWrapperWithCameras(EnvControlWrapper):
-    def __init__(self, jpc_pub, n_obs_steps, n_action_steps, path_bag_robot_description, rff_encoder: RandomFourierFeatures, mass_goal=None):
+    def __init__(self, jpc_pub, n_obs_steps, n_action_steps, path_bag_robot_description,
+                 rff_encoder: RandomFourierFeatures, mass_goal=None):
         super().__init__(jpc_pub, n_obs_steps, n_action_steps)
 
-        # self.camera_1_compressed_msg = None
-        # self.camera_2_compressed_msg = None
-        # self.camera_3_compressed_msg = None
         self.camera_0_compressed_msg = None
+        self.camera_0_depth_compressed_msg = None
 
         self.robot_description = get_robot_description(path_bag_robot_description=path_bag_robot_description)
         self.cv_bridge = CvBridge()
         self._kdl = KDLSolver(self.robot_description)
-        self._kdl .set_kinematic_chain('panda_link0', 'panda_hand')
+        self._kdl.set_kinematic_chain('panda_link0', 'panda_hand')
 
         self.mass_encoding_neutral = self._get_mass_encoding(mass=None, rff_encoder=rff_encoder)
         self.mass_encoding = self._get_mass_encoding(mass_goal, rff_encoder)
@@ -243,25 +238,21 @@ class EnvControlWrapperWithCameras(EnvControlWrapper):
 
         return rff_encoder.encode_vector(_mass_encoding)[0]
 
-
-    def set_camera_1_compressed_msg(self, msg):
-        self.camera_1_compressed_msg = msg
-
-    def set_camera_2_compressed_msg(self, msg):
-        self.camera_2_compressed_msg = msg
-
-    def set_camera_3_compressed_msg(self, msg):
-        self.camera_3_compressed_msg = msg
-
     def set_camera_0_compressed_msg(self, msg):
         self.camera_0_compressed_msg = msg
 
+    def set_camera_0_depth_compressed_msg(self, msg):
+        self.camera_0_depth_compressed_msg = msg
+
     def get_obs(self):
         if (self._jstate is None
-                # or self.camera_1_compressed_msg is None
-                # or self.camera_2_compressed_msg is None
-                # or self.camera_3_compressed_msg is None
-                or self.camera_0_compressed_msg is None) :
+            or self.camera_0_compressed_msg is None
+            or self.camera_0_depth_compressed_msg is None
+        ):
+            print(f"WARNING, the following are None:")
+            print(f"self._jstate: {'not None' if self._jstate is not None else 'None'}")
+            print(f"self.camera_0_compressed_msg: {'not None' if self.camera_0_compressed_msg is not None else 'None'}")
+            print(f"self.camera_0_depth_compressed_msg: {'not None' if self.camera_0_depth_compressed_msg is not None else 'None'}")
             return None
         else:
             return self._compute_obs()
@@ -269,17 +260,16 @@ class EnvControlWrapperWithCameras(EnvControlWrapper):
     def _compute_obs(self):
         pos_end_effector = end_effector_calculator(self._jstate, self._kdl)
 
-        # camera_1_data = convert_image(cv_bridge=self.cv_bridge, msg_ros=self.camera_1_compressed_msg)
-        # camera_2_data = convert_image(cv_bridge=self.cv_bridge, msg_ros=self.camera_2_compressed_msg)
-        # camera_3_data = convert_image(cv_bridge=self.cv_bridge, msg_ros=self.camera_3_compressed_msg)
         camera_0_data = convert_image(cv_bridge=self.cv_bridge, msg_ros=self.camera_0_compressed_msg)
+        camera_0_depth_data = convert_image(cv_bridge=self.cv_bridge, msg_ros=self.camera_0_depth_compressed_msg, is_depth=True)
+
+        camera_0_full_data = RealFrankaImageDataset.concatenate_rgb_depth(camera_0_data, camera_0_depth_data)
+        camera_0_full_data = RealFrankaImageDataset.moveaxis_rgbd(camera_0_full_data)
+        camera_0_full_data = RealFrankaImageDataset.rgb_255_to_1(camera_0_full_data)
 
         return {
             'eef': pos_end_effector.astype(np.float32),
-            # 'camera_1': camera_1_data.astype(np.float32),
-            # 'camera_2': camera_2_data.astype(np.float32),
-            # 'camera_3': camera_3_data.astype(np.float32),
-            'camera_0': camera_0_data.astype(np.float32),
+            'camera_0': camera_0_full_data.astype(np.float32),
             'mass': self.mass_encoding.astype(np.float32),
             'mass_neutral': self.mass_encoding_neutral.astype(np.float32),
         }        
@@ -294,13 +284,12 @@ class DiffusionController(NodeParameterMixin,
         jpc_topic='/ruckig_controller/commands',
         jstate_topic='/joint_states',
         cartesian_control_topic='/cartesian_control',
-        # camera_0_topic='/azure06/rgb/image_raw/compressed',
-        # camera_1_topic='/azure07/rgb/image_raw/compressed',
-        # camera_2_topic='/azure08/rgb/image_raw/compressed',
         camera_0_topic='/d405rs01/color/image_rect_raw/compressed',
+        camera_0_depth_topic="/d405rs01/aligned_depth_to_color/image_raw",
     )
 
-    def __init__(self, policy, critic, n_obs_steps, n_action_steps, path_bag_robot_description, rff_encoder, mass_goal, *args, node_name='robot_calibrator', **kwargs):
+    def __init__(self, policy, critic, n_obs_steps, n_action_steps, path_bag_robot_description, rff_encoder, mass_goal,
+                 *args, node_name='robot_calibrator', **kwargs):
         super().__init__(*args, node_name=node_name, node_parameters=self.NODE_PARAMETERS, **kwargs)
         # jtc commandor
         self.current_command = None
@@ -322,7 +311,7 @@ class DiffusionController(NodeParameterMixin,
                                                 n_action_steps=n_action_steps,
                                                 path_bag_robot_description=path_bag_robot_description,
                                                 rff_encoder=rff_encoder,
-                                                mass_goal=mass_goal,)
+                                                mass_goal=mass_goal, )
         self.policy = policy
         self.policy.eval().cuda()
         self.policy.reset()
@@ -343,15 +332,8 @@ class DiffusionController(NodeParameterMixin,
         self.camera_0_sub = self.create_subscription(
             CompressedImage, self.camera_0_topic, lambda msg: self.env.set_camera_0_compressed_msg(msg), 10)
 
-        # self.camera_1_sub = self.create_subscription(
-        #     CompressedImage, self.camera_1_topic, lambda msg: self.env.set_camera_1_compressed_msg(msg), 10)
-        #
-        # self.camera_2_sub = self.create_subscription(
-        #     CompressedImage, self.camera_2_topic, lambda msg: self.env.set_camera_2_compressed_msg(msg), 10)
-
-        # self.camera_1_sub = self.create_subscription(
-        #     CompressedImage, self.camera_1_topic, lambda msg: self.env.set_camera_1_compressed_msg(msg), 10)
-
+        self.camera_0_depth_sub = self.create_subscription(
+            CompressedImage, self.camera_0_depth_topic, lambda msg: self.env.set_camera_0_depth_compressed_msg(msg), 10)
 
     def jpc_send_goal(self, jpos):
         msg = Float64MultiArray()
@@ -413,17 +395,8 @@ class DiffusionController(NodeParameterMixin,
                 del stacked_neutral_obs["mass"]
                 stacked_neutral_obs["mass"] = stacked_neutral_obs["mass_neutral"]
 
-                # stacked_obs["eef"] = RealFrankaImageDataset.compute_action_relative_to_initial_eef(stacked_obs["eef"], self.env.initial_eef)
                 stacked_obs = dict_apply(stacked_obs, lambda x: x.reshape(1, *x.shape))
                 stacked_neutral_obs = dict_apply(stacked_neutral_obs, lambda x: x.reshape(1, *x.shape))
-
-                # print("To", To)
-                for key, value in stacked_obs.items():
-                    if key in ("mass", "eef",):
-                        continue
-                    stacked_obs[key] = np.transpose(stacked_obs[key], (0, 1, 4, 2, 3)) / 255.
-                    stacked_neutral_obs[key] = np.transpose(stacked_neutral_obs[key], (0, 1, 4, 2, 3)) / 255.
-                    print(key, np.min(stacked_obs[key][0]), np.max(stacked_obs[key][0]))
 
                 filtered_stacked_obs = dict()
                 filtered_stacked_neutral_obs = dict()
