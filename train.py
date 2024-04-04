@@ -7,7 +7,7 @@ from diffusion_policy.workspace.base_workspace import BaseWorkspace
 @hydra.main(
     version_base=None,
     config_path='.',
-    config_name='franka_end_effector_image_obs',
+    config_name='diffusion',
 )
 def main(cfg: OmegaConf):
 
