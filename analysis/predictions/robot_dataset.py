@@ -109,13 +109,13 @@ def get_one_episode(dataset: RealFrankaImageDataset, mass, index_episode: int = 
         "obs": {  # TODO: update this too
             "camera_0": camera_0_data,
             "eef": replay_buffer["eef"][index_start:index_end],
-            "mass": mass_obs,
+            # "mass": mass_obs,
         },
         "action": replay_buffer['action'][index_start:index_end],
         "neutral_obs": {  # TODO: update this too
             "camera_0": camera_0_data,
             "eef": replay_buffer["eef"][index_start:index_end],
-            "mass": neutral_mass_obs,
+            # "mass": neutral_mass_obs,
         },
     }
 
@@ -142,6 +142,8 @@ def main():
     workspace: BaseWorkspace
     workspace.load_payload(payload, exclude_keys=None, include_keys=None) # TODO
     policy = workspace.model
+    # policy = policy.cuda()
+    policy = policy.eval()
 
     # list_episodes = get_dataset(dataset_dir)
     mass=2.2
