@@ -1,29 +1,21 @@
 from __future__ import annotations
 
 from typing import Dict, Tuple
-import math
 
-import hydra
-import numpy as np
+import robomimic.models.base_nets as rmbn
+import robomimic.utils.obs_utils as ObsUtils
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from einops import rearrange, reduce
-from diffusers.schedulers.scheduling_ddpm import DDPMScheduler
-
-from diffusion_policy.model.common.normalizer import LinearNormalizer
-from diffusion_policy.model.diffusion.conditional_unet1d_critic import DoubleCritic
-from diffusion_policy.policy.base_image_policy import BaseImagePolicy
-from diffusion_policy.model.diffusion.conditional_unet1d import ConditionalUnet1D
-from diffusion_policy.model.diffusion.mask_generator import LowdimMaskGenerator
-from diffusion_policy.common.robomimic_config_util import get_robomimic_config
+from einops import reduce
 from robomimic.algo import algo_factory
 from robomimic.algo.algo import PolicyAlgo
-import robomimic.utils.obs_utils as ObsUtils
-import robomimic.models.base_nets as rmbn
+
 import diffusion_policy.model.vision.crop_randomizer as dmvc
-from diffusion_policy.common.pytorch_util import dict_apply, replace_submodules, custom_tree_map
-from diffusion_policy.policy.diffusion_guided_ddim import DDIMGuidedScheduler
+from diffusion_policy.common.pytorch_util import dict_apply, replace_submodules
+from diffusion_policy.common.robomimic_config_util import get_robomimic_config
+from diffusion_policy.model.common.normalizer import LinearNormalizer
+from diffusion_policy.policy.base_image_policy import BaseImagePolicy
 
 
 class DiffusionUnetHybridImagePolicy(BaseImagePolicy):
@@ -223,12 +215,6 @@ class DiffusionUnetHybridImagePolicy(BaseImagePolicy):
             "nobs_features": nobs_features,
         }
         return loss_actor, metrics, other_data
-
-    def calculate_reward(self, obs, action, next_obs):
-        start_index = self.n_obs_steps - 1
-        end_index = start_index + self.n_action_steps
-        rewards, _ = torch.vmap(DDIMGuidedScheduler.scoring_fn, in_dims=(0, None, None, None))(action, self.horizon, self.n_action_steps, self.n_obs_steps)
-        return rewards
 
     def compute_obs_encoding(self, batch, detach=False):
         assert 'valid_mask' not in batch
