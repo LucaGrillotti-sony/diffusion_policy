@@ -29,14 +29,10 @@ from diffusion_policy.policy.diffusion_guided_ddim import DDIMGuidedScheduler
 class DiffusionUnetHybridImagePolicy(BaseImagePolicy):
     def __init__(self, 
             shape_meta: dict,
-            noise_scheduler: DDPMScheduler,
             n_obs_steps,
-            eta_coeff_critic,
-            num_inference_steps=None,
             crop_shape=(76, 76),
             obs_encoder_group_norm=False,
             eval_fixed_crop=False,
-            gamma=0.99,
             # parameters passed to step
             **kwargs):
         super().__init__()
@@ -139,12 +135,8 @@ class DiffusionUnetHybridImagePolicy(BaseImagePolicy):
             nn.Linear(256, action_dim),
         )
 
-        self.gamma = gamma
-
         self.obs_encoder = obs_encoder
-        self.eta_coeff_critic = eta_coeff_critic
         self.model = model
-        self.noise_scheduler = noise_scheduler
 
         self.normalizer = LinearNormalizer()
         self.horizon = 3
@@ -154,9 +146,6 @@ class DiffusionUnetHybridImagePolicy(BaseImagePolicy):
         self.n_obs_steps = n_obs_steps
         self.kwargs = kwargs
 
-        if num_inference_steps is None:
-            num_inference_steps = noise_scheduler.config.num_train_timesteps
-        self.num_inference_steps = num_inference_steps
 
         print("Diffusion params: %e" % sum(p.numel() for p in self.model.parameters()))
         print("Vision params: %e" % sum(p.numel() for p in self.obs_encoder.parameters()))

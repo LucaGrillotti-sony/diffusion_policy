@@ -314,7 +314,7 @@ class DiffusionController(NodeParameterMixin,
                                                 mass_goal=mass_goal, )
         self.policy = policy
         self.policy.eval().cuda()
-        self.policy.reset()
+        self.policy.reset()  # reset stateful policies, no effect on stateless policies (e.g. diffusion policy).
 
         # self.critic = critic
         # self.critic.eval().cuda()
