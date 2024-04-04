@@ -55,7 +55,7 @@ from rclpy.qos import QoSProfile, QoSDurabilityPolicy
 from srl_utilities.node2 import NodeParameterMixin, NodeTFMixin, NodeWaitMixin
 from srl_utilities.se3 import SE3, se3, se3_mat, se3_mul, se3_repr, se3_unmat, _rw2wr, lie_grad
 
-from sensor_msgs.msg import Joy, JointState, CompressedImage
+from sensor_msgs.msg import Joy, JointState, CompressedImage, Image
 from std_msgs.msg import String, Float64MultiArray, MultiArrayDimension
 from control_msgs.action import FollowJointTrajectory
 from trajectory_msgs.msg import JointTrajectoryPoint
@@ -263,8 +263,10 @@ class EnvControlWrapperWithCameras(EnvControlWrapper):
         camera_0_data = convert_image(cv_bridge=self.cv_bridge, msg_ros=self.camera_0_compressed_msg)
         camera_0_depth_data = convert_image(cv_bridge=self.cv_bridge, msg_ros=self.camera_0_depth_compressed_msg, is_depth=True)
 
+        print("camera_0_depth_data", camera_0_depth_data.shape)
+
         camera_0_full_data = RealFrankaImageDataset.concatenate_rgb_depth(camera_0_data, camera_0_depth_data)
-        camera_0_full_data = RealFrankaImageDataset.moveaxis_rgbd(camera_0_full_data)
+        camera_0_full_data = RealFrankaImageDataset.moveaxis_rgbd(camera_0_full_data, single_rgb=True)
         camera_0_full_data = RealFrankaImageDataset.rgbd_255_to_1(camera_0_full_data)
 
         return {
@@ -333,7 +335,7 @@ class DiffusionController(NodeParameterMixin,
             CompressedImage, self.camera_0_topic, lambda msg: self.env.set_camera_0_compressed_msg(msg), 10)
 
         self.camera_0_depth_sub = self.create_subscription(
-            CompressedImage, self.camera_0_depth_topic, lambda msg: self.env.set_camera_0_depth_compressed_msg(msg), 10)
+            Image, self.camera_0_depth_topic, lambda msg: self.env.set_camera_0_depth_compressed_msg(msg), 10)
 
     def jpc_send_goal(self, jpos):
         msg = Float64MultiArray()
@@ -417,6 +419,7 @@ class DiffusionController(NodeParameterMixin,
 
                 # print(dict_apply(stacked_obs, lambda x: x.shape))
                 print("eef", stacked_obs["eef"])
+                print(dict_apply(obs_dict, lambda x: x.shape))
 
                 action_dict = self.policy.predict_action(obs_dict, neutral_obs_dict)
                 np_action_dict = dict_apply(action_dict,
@@ -486,8 +489,8 @@ def main(args=None):
     # ckpt_path = "/home/ros/humble/src/diffusion_policy/data/outputs/2024.03.18/11.48.28_train_diffusion_unet_image_franka_kitchen_lowdim/checkpoints/latest.ckpt" # With relative actions + EEF absolute inputs (for testing only)
     # ckpt_path = "/home/ros/humble/src/diffusion_policy/data/outputs/2024.03.18/13.16.19_train_diffusion_unet_image_franka_kitchen_lowdim/checkpoints/latest.ckpt" # With relative actions
     # ckpt_path = "/home/ros/humble/src/diffusion_policy/data/outputs/2024.03.19/15.41.17_train_diffusion_unet_image_franka_kitchen_lowdim/checkpoints/latest.ckpt"  # With relative actions w.r.t. absolute initial position.
-    ckpt_path = "/home/ros/humble/src/diffusion_policy/data/outputs/2024.03.25/20.36.14_train_diffusion_unet_image_franka_kitchen_lowdim/checkpoints/latest.ckpt"  # With relative actions + mass
-
+    # ckpt_path = "/home/ros/humble/src/diffusion_policy/data/outputs/2024.03.25/20.36.14_train_diffusion_unet_image_franka_kitchen_lowdim/checkpoints/latest.ckpt"  # With relative actions + mass
+    ckpt_path = "/home/ros/humble/src/diffusion_policy/data/outputs/2024.04.01/18.11.01_train_diffusion_unet_image_franka_kitchen_lowdim/checkpoints/latest.ckpt"
     n_obs_steps = 2
     n_action_steps = 8
     path_bag_robot_description = "/home/ros/humble/src/diffusion_policy/data/experiment_2/bags_kinesthetic_v0/rosbag_00/"
@@ -520,21 +523,21 @@ def main(args=None):
     # workspace.model.cuda()
     # print(workspace.model.normalizer["obs"].params_dict["offset"])
 
-    workspace.model = workspace.model.cuda()
-    # workspace.ema_model = workspace.ema_model.cuda()
+    # workspace.model = workspace.model.cuda()
+    workspace.ema_model = workspace.ema_model.cuda()
     # workspace.model = torch.compile(workspace.model).cuda()
 
     args = None
     rclpy.init(args=args)
     try:
         nodes = [
-            DiffusionController(policy=workspace.model,
+            DiffusionController(policy=workspace.ema_model,
                                 critic=workspace.critic,
                                 n_obs_steps=n_obs_steps,
                                 n_action_steps=n_action_steps,
                                 path_bag_robot_description=path_bag_robot_description,
                                 rff_encoder=dataset.rff_encoder,
-                                mass_goal=None,
+                                mass_goal=2.2,
                                 ),
         ]
 

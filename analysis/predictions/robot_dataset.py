@@ -130,7 +130,7 @@ def _get_mass_encoding(mass, rff_encoder):
 
 
 def main():
-
+    ckpt_path = "/home/ros/humble/src/diffusion_policy/data/outputs/2024.04.01/18.11.01_train_diffusion_unet_image_franka_kitchen_lowdim/checkpoints/latest.ckpt"
     dataset_dir = "/home/ros/humble/src/diffusion_policy/data/fake_puree_experiments/diffusion_policy_dataset_exp2_v2/"
 
     payload = torch.load(open(ckpt_path, 'rb'), pickle_module=dill)
@@ -144,8 +144,8 @@ def main():
     policy = workspace.model
 
     # list_episodes = get_dataset(dataset_dir)
-    mass=3.1
-    index_episode=56
+    mass=2.2
+    index_episode=0
     one_episode = get_one_episode(dataset, mass=mass, index_episode=index_episode)
 
     sequence_observations = one_episode["obs"]

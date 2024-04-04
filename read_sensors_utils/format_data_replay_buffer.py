@@ -119,14 +119,17 @@ def convert_image(cv_bridge: CvBridge, msg_ros, is_depth=False, side_size=400):
         img_np = cv2.inpaint(depth, depth_nan_mask, 1, cv2.INPAINT_NS)
         img_np = np.clip(img_np, a_min=0., a_max=1.)
         # img_np = depth
-        img_np = np.asarray(255. * img_np, dtype=np.int32)
+        img_np = np.asarray(255. * img_np, dtype=np.uint8)
+        img_np = np.expand_dims(img_np, axis=-1)
+        img_np = np.concatenate([img_np, img_np, img_np], axis=-1)
 
     # print("IMG NP Shape", img_np.shape)
     middle_width = img_np.shape[0] // 2
     middle_height = img_np.shape[1] // 2
     img_np = img_np[middle_width - (side_size // 2):middle_width + (side_size // 2), middle_height - (side_size // 2):middle_height + (side_size // 2)]
     # img_np = img_np[250:1050, 0:800]
-    # img_np = cv2.resize(img_np, (320, 240), interpolation=cv2.INTER_AREA)
+    # print("IMG, depth", np.max(img_np), np.min(img_np), is_depth, img_np.dtype)
+    img_np = cv2.resize(img_np, (240, 240), interpolation=cv2.INTER_AREA)
     return img_np
 
 
@@ -284,18 +287,18 @@ def treat_folder(path_load, path_save, index_episode, mass):
         name_file = f"{index_camera}.mp4"
         _path_folder = path_save / "videos" / str(index_episode)
         _path_folder.mkdir(exist_ok=True, parents=True)
-        if key.endswith("depth"):
-            is_color=False
-            img_np = data_img[key][1].img_np
-            img_np = img_np.ravel()
+        # if key.endswith("depth"):
+        #     is_color=False
+        #     img_np = data_img[key][1].img_np
+        #     img_np = img_np.ravel()
 
-            print("is_nan", np.any(np.isnan(img_np)))
-            img_np = np.clip(img_np, 0., 1.)
-        else:
-            is_color = True
+        #     print("is_nan", np.any(np.isnan(img_np)))
+        #     img_np = np.clip(img_np, 0., 1.)
+        # else:
+        #     is_color = True
 
 
-        make_video(data_img[key], name=str(_path_folder / name_file), fps=fps_dict[key], is_color=is_color)
+        make_video(data_img[key], name=str(_path_folder / name_file), fps=fps_dict[key], is_color=True)
 
     print("Get End-effector")
     # target_end_effector_poses = parser.get_messages("/cartesian_control")

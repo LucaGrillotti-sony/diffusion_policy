@@ -211,6 +211,7 @@ def create_zarr_action_dataset(dataset_path: str):
     subfolders_actions = [file for file in action_path.iterdir()]
 
     for _subfolder in subfolders_actions:
+        print(_subfolder)
         _file_path = _subfolder / "target_end_effector_pos_interpolated.npy"
         _file_path_eef = _subfolder / "current_eef_pos_interpolated.npy"
         _file_path_annotations = _subfolder / "annotations_video_interpolated.npy"

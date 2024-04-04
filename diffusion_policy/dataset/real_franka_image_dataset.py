@@ -270,8 +270,11 @@ class RealFrankaImageDataset(BaseImageDataset):
         return np.concatenate([rgb, np.expand_dims(np.mean(depth, axis=-1), axis=-1)], axis=-1)
 
     @staticmethod
-    def moveaxis_rgbd(data):
-        return np.moveaxis(data, -1, 1)
+    def moveaxis_rgbd(data, single_rgb=False):
+        if single_rgb:
+            return np.moveaxis(data, -1, 0)
+        else:
+            return np.moveaxis(data, -1, 1)
 
     @staticmethod
     def rgbd_255_to_1(data):
