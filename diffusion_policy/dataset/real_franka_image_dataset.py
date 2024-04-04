@@ -333,7 +333,6 @@ class RealFrankaImageDataset(BaseImageDataset):
         # labels = data['label'].astype(np.uint8)
         # labels = labels[T_slice]
 
-        # assert 'mass' not in obs_dict
         if 'mass' in obs_dict:
             obs_dict['mass'] = self.encode_mass(obs_dict['mass'])
             next_obs_dict['mass'] = self.encode_mass(next_obs_dict['mass'])
@@ -347,6 +346,9 @@ class RealFrankaImageDataset(BaseImageDataset):
 
         # action = self.compute_action_relative_to_initial_eef(action, action[0])
         # action = self.compute_action_relative_to_initial_eef(action, self.FIXED_INITIAL_EEF)
+
+        # TODO: add this back when reconsidering masses
+        del obs_dict['mass']
 
         torch_data = {
             'obs': dict_apply(obs_dict, torch.from_numpy),
