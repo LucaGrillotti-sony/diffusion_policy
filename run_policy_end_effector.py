@@ -9,6 +9,7 @@ import os
 import os.path as osp
 import sys
 from typing import Dict
+import matplotlib.pyplot as plt
 
 import dill
 
@@ -74,9 +75,9 @@ class EnvControlWrapper:
         self.observation_space = gym.spaces.Dict(
             {
                 'eef': gym.spaces.Box(-8, 8, shape=(7,), dtype=np.float32),
-                'camera_0': gym.spaces.Box(0, 1, shape=(4, 240, 320), dtype=np.float32),
-                'mass': gym.spaces.Box( -1, 1, shape=(256,), dtype=np.float32),
-                'mass_neutral': gym.spaces.Box( -1, 1, shape=(256,), dtype=np.float32),
+                'camera_0': gym.spaces.Box(0, 1, shape=(4, 240, 240), dtype=np.float32),
+                # 'mass': gym.spaces.Box( -1, 1, shape=(256,), dtype=np.float32),
+                # 'mass_neutral': gym.spaces.Box( -1, 1, shape=(256,), dtype=np.float32),
             }
         )
         # self.observation_space = gym.spaces.Box(
@@ -91,7 +92,7 @@ class EnvControlWrapper:
         # self.init_pos = np.asarray([-0.38435703, -0.82782065, 0.25952787, -2.3897604, 0.18524243, 1.5886066, 0.59382302])
         # self.init_pos = np.asarray([-0.08435703, -0.62782065, 0.25952787, -2.3897604, 0.18524243, 1.5886066, 0.59382302])
         # self.init_pos = None  # keep initial position of the robot unchanged before starting the experiment
-        self.init_pos = None
+        self.init_pos = np.asarray([])
         self._jstate = None
 
         self.n_obs_steps = n_obs_steps
@@ -104,8 +105,9 @@ class EnvControlWrapper:
 
         # start with the initial position as a goal
         # self.initial_eef = RealFrankaImageDataset.FIXED_INITIAL_EEF
+        self.initial_eef = np.asarray([0.40996018, 0.03893278, 0.45212647, 0.0673149, 0.96574436, 0.2338243, 0.03675712])
 
-        # self.push_actions([self.initial_eef] * 50, force=True)
+        self.push_actions([self.initial_eef] * 50, force=True)
 
     def reset(self):
         # TODO: handle reset properly
@@ -230,6 +232,13 @@ class EnvControlWrapperWithCameras(EnvControlWrapper):
         self.mass_encoding_neutral = self._get_mass_encoding(mass=None, rff_encoder=rff_encoder)
         self.mass_encoding = self._get_mass_encoding(mass_goal, rff_encoder)
 
+        import pathlib
+        self.path_debug = pathlib.Path("images_real_debug")
+        self.path_debug.mkdir(exist_ok=True)
+
+        self._index_image = 0
+
+
     def _get_mass_encoding(self, mass, rff_encoder):
         if mass is None:
             _mass_encoding = np.array([[0., 1.]])
@@ -261,20 +270,40 @@ class EnvControlWrapperWithCameras(EnvControlWrapper):
         pos_end_effector = end_effector_calculator(self._jstate, self._kdl)
 
         camera_0_data = convert_image(cv_bridge=self.cv_bridge, msg_ros=self.camera_0_compressed_msg)
+        camera_0_data = self._bgr_to_rgb(camera_0_data)
+        
         camera_0_depth_data = convert_image(cv_bridge=self.cv_bridge, msg_ros=self.camera_0_depth_compressed_msg, is_depth=True)
-
-        print("camera_0_depth_data", camera_0_depth_data.shape)
 
         camera_0_full_data = RealFrankaImageDataset.concatenate_rgb_depth(camera_0_data, camera_0_depth_data)
         camera_0_full_data = RealFrankaImageDataset.moveaxis_rgbd(camera_0_full_data, single_rgb=True)
         camera_0_full_data = RealFrankaImageDataset.rgbd_255_to_1(camera_0_full_data)
 
+        self._save_image(camera_0_full_data.astype(np.float32))
+
         return {
             'eef': pos_end_effector.astype(np.float32),
             'camera_0': camera_0_full_data.astype(np.float32),
-            'mass': self.mass_encoding.astype(np.float32),
-            'mass_neutral': self.mass_encoding_neutral.astype(np.float32),
+            # 'mass': self.mass_encoding.astype(np.float32),
+            # 'mass_neutral': self.mass_encoding_neutral.astype(np.float32),
         }        
+
+    def _bgr_to_rgb(self, data):
+        return data[..., ::-1]
+
+    def _save_image(self, data):
+        i = self._index_image
+
+        plt.clf()
+        plt.cla()
+        img = data[:3] # Taking only RGB
+        print(f"Saving image {i} with shape", img.shape)
+        # img = np.repeat(img, 3, axis=0)
+        # print("image", i)
+        img = np.moveaxis(img, 0, -1)
+        plt.imshow(img)
+        plt.savefig(self.path_debug / f"image_{i}.png")
+
+        self._index_image += 1
 
 
 class DiffusionController(NodeParameterMixin,
@@ -315,7 +344,8 @@ class DiffusionController(NodeParameterMixin,
                                                 rff_encoder=rff_encoder,
                                                 mass_goal=mass_goal, )
         self.policy = policy
-        self.policy.eval().cuda()
+        self.policy = self.policy.eval()
+        self.policy = self.policy.cuda()
         self.policy.reset()
 
         # self.critic = critic
@@ -378,8 +408,8 @@ class DiffusionController(NodeParameterMixin,
         pos_x = pos[:3]
         pos_q = pos[3:]
 
-        keys_obs = ("camera_0", "eef", "mass")
-        # keys_obs = ("camera_0", "eef", )
+        # keys_obs = ("camera_0", "eef", "mass") TODO
+        keys_obs = ("camera_0", "eef", )
 
         if self.env.queue_actions.empty():
             self.get_logger().info("Adding actions to buffer")
@@ -393,9 +423,10 @@ class DiffusionController(NodeParameterMixin,
 
                 print(list(stacked_obs.keys()), list(obs.keys()))
 
-                del stacked_obs["mass_neutral"]
-                del stacked_neutral_obs["mass"]
-                stacked_neutral_obs["mass"] = stacked_neutral_obs["mass_neutral"]
+                # TODO: add back
+                # del stacked_obs["mass_neutral"]
+                # del stacked_neutral_obs["mass"]
+                # stacked_neutral_obs["mass"] = stacked_neutral_obs["mass_neutral"]
 
                 stacked_obs = dict_apply(stacked_obs, lambda x: x.reshape(1, *x.shape))
                 stacked_neutral_obs = dict_apply(stacked_neutral_obs, lambda x: x.reshape(1, *x.shape))
@@ -418,10 +449,11 @@ class DiffusionController(NodeParameterMixin,
                 # action_dict = self.policy.predict_action_from_several_samples(obs_dict, self.critic, )
 
                 # print(dict_apply(stacked_obs, lambda x: x.shape))
-                print("eef", stacked_obs["eef"])
-                print(dict_apply(obs_dict, lambda x: x.shape))
+                # print("eef", stacked_obs["eef"])
+                # print(dict_apply(obs_dict, lambda x: x.shape))
 
-                action_dict = self.policy.predict_action(obs_dict, neutral_obs_dict)
+                # action_dict = self.policy.predict_action(obs_dict, neutral_obs_dict)  # TODO
+                action_dict = self.policy.predict_action(obs_dict)
                 np_action_dict = dict_apply(action_dict,
                                             lambda x: x.detach().to('cpu').numpy())
 
@@ -450,7 +482,6 @@ class DiffusionController(NodeParameterMixin,
         new_pos = se3(new_pos_x, new_pos_q)
         # new_pos_q = quat.from_float_array(new_pos_q)
         dx = (new_pos_x - pos_x)
-        print("new_pos_x", new_pos_x)
         # dq_rot = (quat.from_float_array(pos_q).conjugate() * quat.from_float_array(init_pos_q))
         # dq_rot = (quat.from_float_array(init_pos_q) * quat.from_float_array(pos_q).conjugate())
         # print(new_pos.q, type(pos_q), type(pos_q.conjugate()))
@@ -463,7 +494,7 @@ class DiffusionController(NodeParameterMixin,
         # dq_rot = quat.from_float_array([1,0,0,0])
         # self.get_logger().info(str(f"target new pos q: {new_pos_q}"))
 
-        self.get_logger().info(str(("Predicted actions: ", dx, dq_rot, pos_q, new_pos_q)))
+        # self.get_logger().info(str(("Predicted actions: ", dx, dq_rot, pos_q, new_pos_q)))
 
         J = np.array(self.kdl.compute_jacobian(jnts_obs))
         dq, *_ = np.linalg.lstsq(J, np.concatenate([dx, quat.as_rotation_vector(dq_rot)]))
@@ -486,11 +517,10 @@ class DiffusionController(NodeParameterMixin,
     #     'diffusion_policy','config'))
 )
 def main(args=None):
-    # ckpt_path = "/home/ros/humble/src/diffusion_policy/data/outputs/2024.03.18/11.48.28_train_diffusion_unet_image_franka_kitchen_lowdim/checkpoints/latest.ckpt" # With relative actions + EEF absolute inputs (for testing only)
-    # ckpt_path = "/home/ros/humble/src/diffusion_policy/data/outputs/2024.03.18/13.16.19_train_diffusion_unet_image_franka_kitchen_lowdim/checkpoints/latest.ckpt" # With relative actions
-    # ckpt_path = "/home/ros/humble/src/diffusion_policy/data/outputs/2024.03.19/15.41.17_train_diffusion_unet_image_franka_kitchen_lowdim/checkpoints/latest.ckpt"  # With relative actions w.r.t. absolute initial position.
-    # ckpt_path = "/home/ros/humble/src/diffusion_policy/data/outputs/2024.03.25/20.36.14_train_diffusion_unet_image_franka_kitchen_lowdim/checkpoints/latest.ckpt"  # With relative actions + mass
-    ckpt_path = "/home/ros/humble/src/diffusion_policy/data/outputs/2024.04.01/18.11.01_train_diffusion_unet_image_franka_kitchen_lowdim/checkpoints/latest.ckpt"
+    # ckpt_path = "/home/ros/humble/src/diffusion_policy/data/outputs/2024.04.01/18.11.01_train_diffusion_unet_image_franka_kitchen_lowdim/checkpoints/latest.ckpt"
+    # ckpt_path = "/home/ros/humble/src/diffusion_policy/data/outputs/2024.04.04/13.48.15_train_diffusion_unet_image_franka_kitchen_lowdim/checkpoints/latest.ckpt"
+    ckpt_path = "/home/ros/humble/src/diffusion_policy/data/outputs/2024.04.04/19.35.49_train_diffusion_unet_image_franka_kitchen_lowdim/checkpoints/latest.ckpt"
+
     n_obs_steps = 2
     n_action_steps = 8
     path_bag_robot_description = "/home/ros/humble/src/diffusion_policy/data/experiment_2/bags_kinesthetic_v0/rosbag_00/"
@@ -523,15 +553,16 @@ def main(args=None):
     # workspace.model.cuda()
     # print(workspace.model.normalizer["obs"].params_dict["offset"])
 
+    policy =  workspace.model
     # workspace.model = workspace.model.cuda()
-    workspace.ema_model = workspace.ema_model.cuda()
+    # workspace.ema_model = workspace.ema_model.cuda()
     # workspace.model = torch.compile(workspace.model).cuda()
 
     args = None
     rclpy.init(args=args)
     try:
         nodes = [
-            DiffusionController(policy=workspace.ema_model,
+            DiffusionController(policy=policy,
                                 critic=workspace.critic,
                                 n_obs_steps=n_obs_steps,
                                 n_action_steps=n_action_steps,
