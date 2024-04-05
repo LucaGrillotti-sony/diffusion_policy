@@ -99,8 +99,8 @@ def get_one_episode(dataset: RealFrankaImageDataset, mass, index_episode: int = 
         mass_obs = dataset.rff_encoder.encode_vector(mass_v)
         neutral_mass_obs = dataset.rff_encoder.encode_vector(neutral_mass_v)
 
-    camera_0_rgb = replay_buffer["camera_0"][index_start:index_end]
-    camera_0_depth = replay_buffer["camera_1"][index_start:index_end]
+    camera_0_rgb = replay_buffer["camera_1"][index_start:index_end]
+    camera_0_depth = replay_buffer["camera_0"][index_start:index_end]
     camera_0_data = RealFrankaImageDataset.concatenate_rgb_depth(camera_0_rgb, camera_0_depth)
     camera_0_data = RealFrankaImageDataset.moveaxis_rgbd(camera_0_data)
     camera_0_data = RealFrankaImageDataset.rgbd_255_to_1(camera_0_data)
@@ -130,7 +130,7 @@ def _get_mass_encoding(mass, rff_encoder):
 
 
 def main():
-    ckpt_path = "/home/ros/humble/src/diffusion_policy/data/outputs/2024.04.01/18.11.01_train_diffusion_unet_image_franka_kitchen_lowdim/checkpoints/latest.ckpt"
+    ckpt_path = "/home/ros/humble/src/diffusion_policy/data/outputs/2024.04.04/19.35.49_train_diffusion_unet_image_franka_kitchen_lowdim/checkpoints/latest.ckpt"
     dataset_dir = "/home/ros/humble/src/diffusion_policy/data/fake_puree_experiments/diffusion_policy_dataset_exp2_v2/"
 
     payload = torch.load(open(ckpt_path, 'rb'), pickle_module=dill)
@@ -142,7 +142,7 @@ def main():
     workspace: BaseWorkspace
     workspace.load_payload(payload, exclude_keys=None, include_keys=None) # TODO
     policy = workspace.model
-    # policy = policy.cuda()
+    policy = policy.cuda()
     policy = policy.eval()
 
     # list_episodes = get_dataset(dataset_dir)
@@ -162,16 +162,42 @@ def main():
     num_obs = len(sequence_observations["camera_0"])
 
     print("length seq", num_obs)
+    print("sequence_observations", sequence_observations["eef"][0])
     # stacked_true_actions = sequence_actions[index_start:index_start+n_action_steps]
 
     num_dim_actions = sequence_actions.shape[1]
+
+    import pathlib
+    import matplotlib.pyplot as plt
+
     color = plt.cm.rainbow(np.linspace(0, 1, num_dim_actions))
+
+    images_debug = "images_debug"
+    path_debug = pathlib.Path(images_debug)
+    path_debug.mkdir(exist_ok=True)
+
+    images = sequence_observations["camera_0"]
+
+    for i in range(num_obs):
+        plt.clf()
+        plt.cla()
+        img = images[i]
+        img = img[:3] # Taking only RGB
+        # img = np.repeat(img, 3, axis=0)
+        print("image", i, images[i])
+        img = np.moveaxis(img, 0, -1)
+        plt.imshow(img)
+        plt.savefig(path_debug / f"image_{i}.png")
+        plt.clf()
+        plt.cla()
+        
+
 
     for index_start in range(n_obs_steps - 1, num_obs - n_obs_steps - n_action_steps, n_action_steps):
         print(index_start)
         stacked_obs = dict_apply(sequence_observations, lambda x: x[index_start - n_obs_steps + 1:index_start + 1])
         stacked_neutral_obs = dict_apply(sequence_neutral_observations, lambda x: x[index_start - n_obs_steps + 1:index_start + 1])
-
+        print("stacked obs", np.max(stacked_obs["camera_0"]), stacked_obs["camera_0"])
         initial_eef = sequence_actions[index_start]
 
         with torch.no_grad():
@@ -184,7 +210,8 @@ def main():
             neutral_obs_dict = dict_apply(np_neutral_obs_dict,
                                           lambda x: torch.from_numpy(x).cuda())
             
-            action_dict = policy.predict_action(obs_dict, neutral_obs_dict)
+            # action_dict = policy.predict_action(obs_dict, neutral_obs_dict) TODO
+            action_dict = policy.predict_action(obs_dict)
             np_action_dict = dict_apply(action_dict,
                                         lambda x: x.detach().to('cpu').numpy())
 
