@@ -305,8 +305,8 @@ class RealFrankaImageDataset(BaseImageDataset):
             if key == "camera_1":
                 continue
             if key == "camera_0":
-                obs_dict["camera_0"] = self.concatenate_rgb_depth(data["camera_0"][T_slice], data["camera_1"][T_slice])
-                next_obs_dict["camera_0"] = self.concatenate_rgb_depth(data["camera_0"][next_T_slice], data["camera_1"][next_T_slice])
+                obs_dict["camera_0"] = self.concatenate_rgb_depth(data["camera_1"][T_slice], data["camera_0"][T_slice])
+                next_obs_dict["camera_0"] = self.concatenate_rgb_depth(data["camera_1"][next_T_slice], data["camera_0"][next_T_slice])
 
                 obs_dict[key] = self.rgbd_255_to_1(self.moveaxis_rgbd(obs_dict["camera_0"]))
                 next_obs_dict[key] = self.rgbd_255_to_1(self.moveaxis_rgbd(next_obs_dict["camera_0"]))
