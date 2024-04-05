@@ -20,6 +20,7 @@ import wandb
 from gym import spaces
 from hydra.core.hydra_config import HydraConfig
 
+from analysis.predictions.robot_dataset import get_one_episode
 from diffusion_policy.common.pytorch_util import dict_apply
 from diffusion_policy.dataset.real_franka_image_dataset import RandomFourierFeatures, RealFrankaImageDataset
 from diffusion_policy.env_runner.real_robot_runner import RealRobot
@@ -306,6 +307,43 @@ class EnvControlWrapperWithCameras(EnvControlWrapper):
         self._index_image += 1
 
 
+
+class EnvControlWrapperReplayDataset(EnvControlWrapperWithCameras):
+    def __init__(self, jpc_pub, n_obs_steps, n_action_steps, path_bag_robot_description,
+                 rff_encoder: RandomFourierFeatures, episode_to_replay, mass_goal=None):
+        super().__init__(jpc_pub, n_obs_steps, n_action_steps, path_bag_robot_description, rff_encoder, mass_goal)
+
+        self._index_obs = 0
+        self.episode_to_replay = episode_to_replay
+
+    def _compute_obs(self):
+        pos_end_effector = self.episode_to_replay["obs"]["eef"][self._index_obs]
+        camera_0_rgb = self.episode_to_replay["obs"]["camera_1"][self._index_obs]
+        camera_0_depth = self.episode_to_replay["obs"]["camera_0"][self._index_obs]
+        camera_0_full_data = RealFrankaImageDataset.concatenate_rgb_depth(camera_0_rgb, camera_0_depth)
+        camera_0_full_data = RealFrankaImageDataset.moveaxis_rgbd(camera_0_full_data)
+        camera_0_full_data = RealFrankaImageDataset.rgbd_255_to_1(camera_0_full_data)
+
+        self._save_image(camera_0_full_data.astype(np.float32))
+
+        return {
+            'eef': pos_end_effector.astype(np.float32),
+            'camera_0': camera_0_full_data.astype(np.float32),
+            # 'mass': self.mass_encoding.astype(np.float32),
+            # 'mass_neutral': self.mass_encoding_neutral.astype(np.float32),
+        }
+
+    @classmethod
+    def create(cls, jpc_pub, n_obs_steps, n_action_steps, path_bag_robot_description,
+                 rff_encoder: RandomFourierFeatures, dataset, index_episode, mass_goal=None):
+        episode_to_replay = get_one_episode(dataset, mass_goal, index_episode)
+        return cls(jpc_pub, n_obs_steps, n_action_steps, path_bag_robot_description, rff_encoder, episode_to_replay, mass_goal)
+
+    def increment_step(self):
+        self._index_obs += 1
+
+
+
 class DiffusionController(NodeParameterMixin,
                           NodeWaitMixin,
                           NodeTFMixin,
@@ -319,7 +357,7 @@ class DiffusionController(NodeParameterMixin,
         camera_0_depth_topic="/d405rs01/aligned_depth_to_color/image_raw",
     )
 
-    def __init__(self, policy, critic, n_obs_steps, n_action_steps, path_bag_robot_description, rff_encoder, mass_goal,
+    def __init__(self, policy, critic, n_obs_steps, n_action_steps, path_bag_robot_description, rff_encoder, mass_goal, dataset,
                  *args, node_name='robot_calibrator', **kwargs):
         super().__init__(*args, node_name=node_name, node_parameters=self.NODE_PARAMETERS, **kwargs)
         # jtc commandor
@@ -337,12 +375,14 @@ class DiffusionController(NodeParameterMixin,
         self.kdl = KDLSolver(self.robot_description)
         self.kdl.set_kinematic_chain('panda_link0', 'panda_hand')
 
-        self.env = EnvControlWrapperWithCameras(self.jpc_pub,
+        self.env = EnvControlWrapperReplayDataset.create(self.jpc_pub,
                                                 n_obs_steps=n_obs_steps,
                                                 n_action_steps=n_action_steps,
                                                 path_bag_robot_description=path_bag_robot_description,
                                                 rff_encoder=rff_encoder,
-                                                mass_goal=mass_goal, )
+                                                mass_goal=mass_goal,
+                                                dataset=dataset,
+                                                index_episode=0)
         self.policy = policy
         self.policy = self.policy.eval()
         self.policy = self.policy.cuda()
@@ -569,6 +609,7 @@ def main(args=None):
                                 path_bag_robot_description=path_bag_robot_description,
                                 rff_encoder=dataset.rff_encoder,
                                 mass_goal=2.2,
+                                dataset=dataset,
                                 ),
         ]
 
