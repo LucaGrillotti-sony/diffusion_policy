@@ -99,21 +99,22 @@ def get_one_episode(dataset: RealFrankaImageDataset, mass, index_episode: int = 
         mass_obs = dataset.rff_encoder.encode_vector(mass_v)
         neutral_mass_obs = dataset.rff_encoder.encode_vector(neutral_mass_v)
 
-    camera_0_rgb = replay_buffer["camera_1"][index_start:index_end]
-    camera_0_depth = replay_buffer["camera_0"][index_start:index_end]
-    camera_0_data = RealFrankaImageDataset.concatenate_rgb_depth(camera_0_rgb, camera_0_depth)
-    camera_0_data = RealFrankaImageDataset.moveaxis_rgbd(camera_0_data)
-    camera_0_data = RealFrankaImageDataset.rgbd_255_to_1(camera_0_data)
+    # TODO
+    # camera_0_rgb = replay_buffer["camera_1"][index_start:index_end]
+    # camera_0_depth = replay_buffer["camera_0"][index_start:index_end]
+    # camera_0_data = RealFrankaImageDataset.concatenate_rgb_depth(camera_0_rgb, camera_0_depth)
+    # camera_0_data = RealFrankaImageDataset.moveaxis_rgbd(camera_0_data)
+    # camera_0_data = RealFrankaImageDataset.rgbd_255_to_1(camera_0_data)
 
     return {
         "obs": {  # TODO: update this too
-            "camera_0": camera_0_data,
+            # "camera_0": camera_0_data,
             "eef": replay_buffer["eef"][index_start:index_end],
             # "mass": mass_obs,
         },
         "action": replay_buffer['action'][index_start:index_end],
         "neutral_obs": {  # TODO: update this too
-            "camera_0": camera_0_data,
+            # "camera_0": camera_0_data,
             "eef": replay_buffer["eef"][index_start:index_end],
             # "mass": neutral_mass_obs,
         },
@@ -130,12 +131,12 @@ def _get_mass_encoding(mass, rff_encoder):
 
 
 def main():
-    ckpt_path = "/home/ros/humble/src/diffusion_policy/data/outputs/2024.04.04/19.35.49_train_diffusion_unet_image_franka_kitchen_lowdim/checkpoints/latest.ckpt"
+    ckpt_path = "/home/ros/humble/src/diffusion_policy/data/outputs/2024.04.08/14.10.05_train_diffusion_unet_image_franka_kitchen_lowdim/checkpoints/latest.ckpt"  # eef only, num_obs_frame_stack = 4
     dataset_dir = "/home/ros/humble/src/diffusion_policy/data/fake_puree_experiments/diffusion_policy_dataset_exp2_v2/"
 
     payload = torch.load(open(ckpt_path, 'rb'), pickle_module=dill)
     cfg = payload['cfg']
-    # cfg.task.dataset.dataset_path = dataset_dir
+    cfg.task.dataset.dataset_path = dataset_dir
     dataset: RealFrankaImageDataset = hydra.utils.instantiate(cfg.task.dataset)
     cls = hydra.utils.get_class(cfg._target_)
     workspace = cls(cfg)
@@ -146,8 +147,8 @@ def main():
     policy = policy.eval()
 
     # list_episodes = get_dataset(dataset_dir)
-    mass=2.2
-    index_episode=0
+    mass = 1000  # TODO: not taking mass atm
+    index_episode = 10
     one_episode = get_one_episode(dataset, mass=mass, index_episode=index_episode)
 
     sequence_observations = one_episode["obs"]
@@ -156,10 +157,10 @@ def main():
 
     n_action_steps = 8
     n_latency_steps = 0
-    n_obs_steps = 2
+    n_obs_steps = 4  # TODO
 
     # index_start = 60  # TODO - Test with several
-    num_obs = len(sequence_observations["camera_0"])
+    num_obs = len(sequence_observations["eef"])
 
     print("length seq", num_obs)
     print("sequence_observations", sequence_observations["eef"][0])
@@ -176,20 +177,21 @@ def main():
     path_debug = pathlib.Path(images_debug)
     path_debug.mkdir(exist_ok=True)
 
-    images = sequence_observations["camera_0"]
-
-    for i in range(num_obs):
-        plt.clf()
-        plt.cla()
-        img = images[i]
-        img = img[:3] # Taking only RGB
-        # img = np.repeat(img, 3, axis=0)
-        print("image", i, images[i])
-        img = np.moveaxis(img, 0, -1)
-        plt.imshow(img)
-        plt.savefig(path_debug / f"image_{i}.png")
-        plt.clf()
-        plt.cla()
+    # todo
+    # images = sequence_observations["camera_0"]
+    #
+    # for i in range(num_obs):
+    #     plt.clf()
+    #     plt.cla()
+    #     img = images[i]
+    #     img = img[:3] # Taking only RGB
+    #     # img = np.repeat(img, 3, axis=0)
+    #     print("image", i, images[i])
+    #     img = np.moveaxis(img, 0, -1)
+    #     plt.imshow(img)
+    #     plt.savefig(path_debug / f"image_{i}.png")
+    #     plt.clf()
+    #     plt.cla()
         
 
 
@@ -197,7 +199,7 @@ def main():
         print(index_start)
         stacked_obs = dict_apply(sequence_observations, lambda x: x[index_start - n_obs_steps + 1:index_start + 1])
         stacked_neutral_obs = dict_apply(sequence_neutral_observations, lambda x: x[index_start - n_obs_steps + 1:index_start + 1])
-        print("stacked obs", np.max(stacked_obs["camera_0"]), stacked_obs["camera_0"])
+        # print("stacked obs", np.max(stacked_obs["camera_0"]), stacked_obs["camera_0"])
         initial_eef = sequence_actions[index_start]
 
         with torch.no_grad():
@@ -237,7 +239,7 @@ def main():
 
 
 
-    plt.savefig(f"predictions_{mass=}_{index_episode=}.png")
+    plt.savefig(f"predictions_{index_episode=}_{mass=}.png")
     # plt.show()
 
 if __name__ == '__main__':
