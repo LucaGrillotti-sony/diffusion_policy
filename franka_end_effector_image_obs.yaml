@@ -8,7 +8,7 @@ checkpoint:
   save_last_ckpt: true
   save_last_snapshot: false
   topk:
-    format_str: epoch={epoch:04d}-test_mean_score={test_mean_score:.3f}.ckpt
+    format_str: epoch={epoch:04d}-mse_error_val={mse_error_val:.3f}.ckpt
     k: 5
     mode: min
     monitor_key: mse_error_val
@@ -79,7 +79,7 @@ policy:
   _target_: diffusion_policy.policy.diffusion_unet_hybrid_image_policy.DiffusionUnetHybridImagePolicy
   eta_coeff_critic: 0.001
   cond_predict_scale: true
-  crop_shape: null # TODO
+  crop_shape: [216, 216]
   diffusion_step_embed_dim: 128
   down_dims:
     - 512
@@ -96,12 +96,13 @@ policy:
       shape:
         - 7
     obs:
-#      camera_0:
-#        shape:
-#          - 4
-#          - 240
-#          - 240
-#        type: rgb
+      camera_1:
+        shape:
+#          - 4  # TODO
+          - 3
+          - 240
+          - 240
+        type: rgb
       eef:
         shape:
          - 7
@@ -129,19 +130,20 @@ critic:
     - 512
     - 1024
   kernel_size: 5
-  n_obs_steps: 4 # TODO: put back to 2
+  n_obs_steps: 4 # TODO: put back to 2?
   n_groups: 8
   shape_meta:
     action:
       shape:
         - 7
     obs:
-#      camera_0:
-#        shape:
-#          - 4
-#          - 240
-#          - 240
-#        type: rgb
+      camera_1:
+        shape:
+#          - 4  # TODO
+          - 3
+          - 240
+          - 240
+        type: rgb
       eef:
         shape:
           - 7
@@ -160,18 +162,13 @@ task:
         shape:
           - 7
       obs:
-#        camera_0:
-#          shape:
-#            - 3
-#            - 240
-#            - 240
-#          type: rgb
-#        camera_1:
-#          shape:
-#            - 3
-#            - 240
-#            - 240
-#          type: rgb
+        camera_1:  # TODO: change back to camera_0
+          shape:
+  #          - 4  # TODO
+            - 3
+            - 240
+            - 240
+          type: rgb
         mass:
           shape:
             - 256 # after RFF

@@ -45,10 +45,10 @@ class RandomFourierFeatures:
 
 
 class RealFrankaImageDataset(BaseImageDataset):
-    # Choosing initial EEF from dataset.
-    FIXED_INITIAL_EEF = np.asarray([0.4000259, 0.04169807, 0.43917269,  # XYZ
-                                    0.0368543, 0.97042745, 0.23850703, 0.00517287],  # Quaternion
-                                   )
+    # # Choosing initial EEF from dataset.
+    # FIXED_INITIAL_EEF = np.asarray([0.4000259, 0.04169807, 0.43917269,  # XYZ
+    #                                 0.0368543, 0.97042745, 0.23850703, 0.00517287],  # Quaternion
+    #                                )
 
     def __init__(self,
             shape_meta: dict,
@@ -296,23 +296,45 @@ class RealFrankaImageDataset(BaseImageDataset):
         obs_dict = dict()
         next_obs_dict = dict()
 
+        # camera_0 is depth
+        # camera_1 is color
 
-        for key in self.rgb_keys:
-            # move channel last to channel first
-            # T,H,W,C
-            # convert uint8 image to float32
-            # TODO: temporary fix to add depth image; change camera_1 for camera_0_depth
-            if key == "camera_1":
-                continue
-            if key == "camera_0":
-                obs_dict["camera_0"] = self.concatenate_rgb_depth(data["camera_1"][T_slice], data["camera_0"][T_slice])
-                next_obs_dict["camera_0"] = self.concatenate_rgb_depth(data["camera_1"][next_T_slice], data["camera_0"][next_T_slice])
+        # TODO
+        assert len(self.rgb_keys) == 1
+        assert "camera_1" in self.rgb_keys
+        assert "camera_0" not in self.rgb_keys
+        obs_dict["camera_1"] = self.rgbd_255_to_1(self.moveaxis_rgbd(data["camera_1"][T_slice]))
+        next_obs_dict["camera_1"] = self.rgbd_255_to_1(self.moveaxis_rgbd(data["camera_1"][next_T_slice]))
+        del data["camera_1"]  # save ram
 
-                obs_dict[key] = self.rgbd_255_to_1(self.moveaxis_rgbd(obs_dict["camera_0"]))
-                next_obs_dict[key] = self.rgbd_255_to_1(self.moveaxis_rgbd(next_obs_dict["camera_0"]))
-            else:
-                obs_dict[key] = self.rgbd_255_to_1(self.moveaxis_rgbd(data[key][T_slice]))
-                next_obs_dict[key] = self.rgbd_255_to_1(self.moveaxis_rgbd(data[key][next_T_slice]))
+        # TODO
+        # for key in self.rgb_keys:
+        #     # move channel last to channel first
+        #     # T,H,W,C
+        #     # convert uint8 image to float32
+        #     # TODO: temporary fix to add depth image; change camera_1 for camera_0_depth
+        #
+        #     # camera_0 is depth
+        #     # camera_1 is color
+        #
+        #     if "camera_0" not in self.rgb_keys:
+        #         print("camera 0 not in rgb keys!")
+        #
+        #
+        #     obs_dict["camera_0"] = self.rgbd_255_to_1(self.moveaxis_rgbd(data[key][T_slice]))
+        #     next_obs_dict["camera_0"] = self.rgbd_255_to_1(self.moveaxis_rgbd(data[key][next_T_slice]))
+
+            # if key == "camera_1":
+            #     continue
+            # if key == "camera_0":
+            #     obs_dict["camera_0"] = self.concatenate_rgb_depth(data["camera_1"][T_slice], data["camera_0"][T_slice])
+            #     next_obs_dict["camera_0"] = self.concatenate_rgb_depth(data["camera_1"][next_T_slice], data["camera_0"][next_T_slice])
+            #
+            #     obs_dict[key] = self.rgbd_255_to_1(self.moveaxis_rgbd(obs_dict["camera_0"]))
+            #     next_obs_dict[key] = self.rgbd_255_to_1(self.moveaxis_rgbd(next_obs_dict["camera_0"]))
+            # else:
+            #     obs_dict[key] = self.rgbd_255_to_1(self.moveaxis_rgbd(data[key][T_slice]))
+            #     next_obs_dict[key] = self.rgbd_255_to_1(self.moveaxis_rgbd(data[key][next_T_slice]))
 
             # obs_dict[key] = np.moveaxis(data[key][T_slice],-1,1
             #     ).astype(np.float32) / 255.
@@ -320,7 +342,8 @@ class RealFrankaImageDataset(BaseImageDataset):
             #     ).astype(np.float32) / 255.
             # T,C,H,W
             # save ram
-            del data[key]
+            # del data[key]
+
         for key in self.lowdim_keys:
             obs_dict[key] = data[key][T_slice].astype(np.float32)
             next_obs_dict[key] = data[key][next_T_slice].astype(np.float32)
