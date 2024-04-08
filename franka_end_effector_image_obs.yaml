@@ -10,8 +10,8 @@ checkpoint:
   topk:
     format_str: epoch={epoch:04d}-test_mean_score={test_mean_score:.3f}.ckpt
     k: 5
-    mode: max
-    monitor_key: test_mean_score
+    mode: min
+    monitor_key: mse_error_val
 ema:
   _target_: diffusion_policy.model.diffusion.ema_model.EMAModel
   inv_gamma: 1.0
@@ -45,7 +45,7 @@ multi_run:
   wandb_name_base: 2023.02.25-03.06.09_train_diffusion_unet_image_franka_real
 n_action_steps: 8
 n_latency_steps: 0
-n_obs_steps: 2
+n_obs_steps: 4
 name: train_diffusion_unet_image_franka
 obs_as_global_cond: true
 obs_as_local_cond: false
@@ -79,7 +79,7 @@ policy:
   _target_: diffusion_policy.policy.diffusion_unet_hybrid_image_policy.DiffusionUnetHybridImagePolicy
   eta_coeff_critic: 0.001
   cond_predict_scale: true
-  crop_shape: [216, 216]
+  crop_shape: null # TODO
   diffusion_step_embed_dim: 128
   down_dims:
     - 512
@@ -89,40 +89,23 @@ policy:
   horizon: 16
   kernel_size: 5
   n_action_steps: 8
-  n_obs_steps: 2
+  n_obs_steps: 4
   n_groups: 8
   shape_meta:
     action:
       shape:
         - 7
     obs:
-      camera_0:
-        shape:
-          - 4
-          - 240
-          - 240
-        type: rgb
+#      camera_0:
+#        shape:
+#          - 4
+#          - 240
+#          - 240
+#        type: rgb
       eef:
         shape:
          - 7
         type: low_dim
-#      mass:
-#        shape:
-#          - 256  # after RFF
-#        type: low_dim
-
-  # noise_scheduler:
-  #   _target_: diffusers.schedulers.scheduling_ddim.DDIMScheduler
-  #   num_train_timesteps: 100
-  #   beta_start: 0.0001
-  #   beta_end: 0.02
-  #   # beta_schedule is important
-  #   # this is the best we found
-  #   beta_schedule: squaredcos_cap_v2
-  #   clip_sample: True
-  #   set_alpha_to_one: True
-  #   steps_offset: 0
-  #   prediction_type: epsilon # or sample
   noise_scheduler:
     _target_: diffusers.schedulers.scheduling_ddpm.DDPMScheduler
     num_train_timesteps: 100
@@ -146,23 +129,19 @@ critic:
     - 512
     - 1024
   kernel_size: 5
-  n_obs_steps: 2
+  n_obs_steps: 4 # TODO: put back to 2
   n_groups: 8
   shape_meta:
     action:
       shape:
         - 7
     obs:
-      camera_0:
-        shape:
-          - 4
-          - 240
-          - 240
-        type: rgb
-#      mass:
+#      camera_0:
 #        shape:
-#          - 256 # after RFF
-#        type: low_dim
+#          - 4
+#          - 240
+#          - 240
+#        type: rgb
       eef:
         shape:
           - 7
@@ -181,18 +160,18 @@ task:
         shape:
           - 7
       obs:
-        camera_0:
-          shape:
-            - 3
-            - 240
-            - 240
-          type: rgb
-        camera_1:
-          shape:
-            - 3
-            - 240
-            - 240
-          type: rgb
+#        camera_0:
+#          shape:
+#            - 3
+#            - 240
+#            - 240
+#          type: rgb
+#        camera_1:
+#          shape:
+#            - 3
+#            - 240
+#            - 240
+#          type: rgb
         mass:
           shape:
             - 256 # after RFF
@@ -207,10 +186,11 @@ task:
         type: low_dim
 #    dataset_path: /home/ros/humble/src/diffusion_policy/data/smaller_dataset
 #    dataset_path: /home/sony-unicorn/ros/humble/src/diffusion_policy/data/fake_puree_experiments/diffusion_policy_dataset/
-    dataset_path: /home/ros/humble/src/diffusion_policy/data/fake_puree_experiments/diffusion_policy_dataset_exp2_v2/
+    dataset_path: /home/lucagrillotti/ros/humble/src/diffusion_policy/data/fake_puree_experiments/diffusion_policy_dataset_exp2_v2/
+#    dataset_path: /home/ros/humble/src/diffusion_policy/data/fake_puree_experiments/diffusion_policy_dataset_exp2_v2/  # TODO
     dt: 0.1
     horizon: 16
-    n_obs_steps: 2
+    n_obs_steps: 4
     n_action_steps: 8
     pad_after: 7
     pad_before: 1
@@ -226,7 +206,7 @@ task:
     _target_: diffusion_policy.env_runner.real_robot_runner.DummyImageRobot
 task_name: kitchen_lowdim
 training:
-  checkpoint_every: 2
+  checkpoint_every: 5  # Needs to be a multiple of sample_every
   debug: false
   device: cuda:0
   gradient_accumulate_every: 1
@@ -237,7 +217,7 @@ training:
   num_epochs: 8000
   resume: true
   rollout_every: 50
-  sample_every: 1
+  sample_every: 5
   seed: 42
   tqdm_interval_sec: 1.0
   use_ema: true
