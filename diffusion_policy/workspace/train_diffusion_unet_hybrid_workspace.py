@@ -351,14 +351,50 @@ class TrainDiffusionUnetHybridWorkspace(BaseWorkspace):
                             )
                             step_log.update(dict_metrics)
 
-                # run diffusion sampling on a training batch
+                # run diffusion sampling on validation batches
                 if self.epoch % cfg.training.sample_every == 0:
                     with torch.no_grad():
+
+                        # val_losses = list()
+                        mse_errors = list()
+                        with tqdm.tqdm(val_dataloader, desc=f"Predicting actions epoch {self.epoch}",
+                                       leave=False, mininterval=cfg.training.tqdm_interval_sec) as tepoch:
+                            for batch_idx, batch in enumerate(tepoch):
+                                batch = dict_apply(batch, lambda x: x.to(device, non_blocking=True))
+                                obs_dict = batch['obs']
+                                gt_action = batch['action']
+                                result = self.model.predict_action(obs_dict,)
+                                # labels = batch['label']
+                                # shape_labels = labels.shape
+                                # nobs_features_flat = _other_data_model['nobs_features'].detach()
+                                # nobs_features_flat = nobs_features_flat.view(*shape_labels, -1)
+                                # val_loss_classifier = self.classifier.compute_loss(nobs_features_flat, labels)
+
+                                pred_action = result['action_pred']
+                                mse = torch.nn.functional.mse_loss(pred_action, gt_action)
+                                mse_errors.append(mse.item())
+
+                                # step_log['train_action_mse_error'] = mse.item()
+                                del batch
+                                del obs_dict
+                                del gt_action
+                                del result
+                                del pred_action
+                                del mse
+                                # accuracy_classifier = self.classifier.accuracy(nobs_features_flat, labels)
+
+
+                                if (cfg.training.max_val_steps is not None) \
+                                        and batch_idx >= (cfg.training.max_val_steps - 1):
+                                    break
+                        if len(mse_errors) > 0:
+                            step_log["mse_error_val"] = torch.mean(torch.tensor(mse_errors)).item()
+
                         # sample trajectory from training set, and evaluate difference
                         batch = dict_apply(train_sampling_batch, lambda x: x.to(device, non_blocking=True))
                         obs_dict = batch['obs']
                         gt_action = batch['action']
-                        
+
                         result = policy.predict_action(obs_dict)
                         pred_action = result['action_pred']
                         mse = torch.nn.functional.mse_loss(pred_action, gt_action)
