@@ -8,13 +8,15 @@ import queue
 import os
 import os.path as osp
 import sys
-from typing import Dict
+import time
+from typing import Dict, Sequence
 import matplotlib.pyplot as plt
 
 import dill
 
 import click
 import gym
+import scipy
 import torch
 import wandb
 from gym import spaces
@@ -71,8 +73,13 @@ from kdl_solver import KDLSolver
 import copy
 
 
-class EnvControlWrapper:
-    def __init__(self, jpc_pub, n_obs_steps, n_action_steps):
+class EnvControlWrapperJTC:
+    def __init__(self, jtc_client, n_obs_steps, n_action_steps, path_bag_robot_description):
+        self.robot_description = get_robot_description(path_bag_robot_description=path_bag_robot_description)
+        self.cv_bridge = CvBridge()
+        self._kdl = KDLSolver(self.robot_description)
+        self._kdl.set_kinematic_chain('panda_link0', 'panda_hand')
+
         self.observation_space = gym.spaces.Dict(
             {
                 'eef': gym.spaces.Box(-8, 8, shape=(7,), dtype=np.float32),
@@ -81,41 +88,32 @@ class EnvControlWrapper:
                 # 'mass_neutral': gym.spaces.Box( -1, 1, shape=(256,), dtype=np.float32),
             }
         )
-        # self.observation_space = gym.spaces.Box(
-        #     -8, 8, shape=(7,), dtype=np.float32)  # TODO
         self.action_space = gym.spaces.Box(
-            -8, 8, shape=(7,), dtype=np.float32)  # TODO
-        self._jpc_pub = jpc_pub
-        # self.init_pos = np.load(osp.join(osp.dirname(__file__), 'init_joint_pos.npy'))
-        # init_positions = np.load(osp.join(osp.dirname(__file__), 'obs_with_time.npy'))[:, 1:]
-        # self.init_pos = init_positions[len(init_positions) // 2,:7]
-        # self.init_pos = init_positions[len(init_positions) // 3, :7]
-        # self.init_pos = np.asarray([-0.38435703, -0.82782065, 0.25952787, -2.3897604, 0.18524243, 1.5886066, 0.59382302])
-        # self.init_pos = np.asarray([-0.08435703, -0.62782065, 0.25952787, -2.3897604, 0.18524243, 1.5886066, 0.59382302])
-        # self.init_pos = None  # keep initial position of the robot unchanged before starting the experiment
-        self.init_pos = np.asarray([])
+            -8, 8, shape=(7,), dtype=np.float32)
+        self._jtc_client = jtc_client
         self._jstate = None
 
         self.n_obs_steps = n_obs_steps
         self.n_action_steps = n_action_steps
         self.max_steps = None  # TODO
 
-        self.all_observations = collections.deque(maxlen=self.n_obs_steps)  # TODO: same for reward?
+        self.all_observations = collections.deque(maxlen=self.n_obs_steps)
 
         self.queue_actions = queue.Queue()
 
         # start with the initial position as a goal
         # self.initial_eef = RealFrankaImageDataset.FIXED_INITIAL_EEF
-        self.initial_eef = np.asarray(
-            [0.40996018, 0.03893278, 0.45212647, 0.0673149, 0.96574436, 0.2338243, 0.03675712])
+        initial_eef = np.asarray(
+            [0.40996018, 0.03893278, 0.45212647, 0.0673149, 0.96574436, 0.2338243, 0.03675712]
+        )  # TODO: deal with initial eef
+        self.initial_eef = self.convert_eef_to_kdl(initial_eef)  # PyKDL coordinate: tr=[x,y,z] and qu = [x,y,z,w]
 
-        self.push_actions([self.initial_eef] * 50, force=True)
+        self.q_prev = None  # Used for IK
+
 
     def reset(self):
-        # TODO: handle reset properly
-        # self.jpc_send_goal(self.init_pos)
-        init_pos = self.init_pos
-        obs, *_ = self.step(init_pos)
+        # times_joints_seq set to None, to avoid sending any action to the environment
+        obs, *_ = self.step(times_joints_seq=None)  # TODO: deal with initial pos
         return obs
 
     def _compute_obs(self):
@@ -132,12 +130,7 @@ class EnvControlWrapper:
             return self._compute_obs()
 
     def push_actions(self, list_actions, force=False):
-        if not self.queue_actions.empty() and not force:
-            raise ValueError("Queue actions is not empty, cannot push anything new to it")
-        if not force:
-            assert len(list_actions) == self.n_action_steps
-        for action in list_actions:
-            self.queue_actions.put(action)
+        raise NotImplementedError
 
     def _compute_stacked_obs(self, n_steps=1):
         """
@@ -170,21 +163,21 @@ class EnvControlWrapper:
         return result
 
     def get_from_queue_actions(self):
-        if self.queue_actions.empty():
-            raise ValueError("Queue actions should not be empty when calling step")
+        raise NotImplementedError  # not compatible with JTC
 
-        action = self.queue_actions.get()
-        return action
+    def append_obs(self):
+        obs = self.get_obs()
+        self.all_observations.append(obs)
 
-    def step(self, action, do_return_stacked_obs=False):
-        if action is not None:
-            self.jpc_send_goal(action)
+    def step(self, times_joints_seq, do_return_stacked_obs=False):
+        if times_joints_seq is not None:
+            self.send_jtc_action(times_joints_seq)
         obs = self.get_obs()
         reward = -1.
         info = {}
         done = False
 
-        self.all_observations.append(obs)
+        # self.all_observations.append(obs)
 
         if do_return_stacked_obs:
             # if you want the stacked obs, call request_stacked_obs() instead
@@ -197,6 +190,104 @@ class EnvControlWrapper:
 
         return stacked_obs, reward, done, info
 
+    @classmethod
+    def convert_eef_to_kdl(cls, eef):
+        pos_x = eef[0:3]
+        pos_q = eef[3:7]
+        pos_q = np.asarray([pos_q[1], pos_q[2], pos_q[3], pos_q[0]])
+        return np.concatenate([pos_x, pos_q])
+
+    def convert_eef_to_joints(self,
+                              eef_seq,
+                              joints_init,
+                              convert_eef_to_kdl_convention: bool = False,
+                              verbose: bool = False):
+        tq_new = []
+        q_prev = None
+        for i in range(0, eef_seq.shape[0]):
+            # js = joint_array[i, :]
+            eef = eef_seq[i]
+            if convert_eef_to_kdl_convention:
+                eef = self.convert_eef_to_kdl(eef)
+            tr = eef[0:3]
+            qu = eef[3:7]  # TODO: VERIFY THAT WE HAVE THE RIGHT CONVENTION HERE!!
+            # tr, qu = self._kdl.compute_fk(js)  # PyKDL coordinate: tr=[x,y,z] and qu = [x,y,z,w]
+
+            ee_target_pykdl = PyKDL.Frame(
+                PyKDL.Rotation.Quaternion(*qu),
+                PyKDL.Vector(*tr),
+            )
+
+            qpi = self._kdl.compute_ik(joints_init, ee_target_pykdl)
+
+            if qpi is None:
+                self.get_logger().error("ERROR: Fail to compute IK from the target end-effector position:")
+                self.get_logger().error(
+                    f"translation (xyz): {ee_target_pykdl.p}, quaternion (xyzw): {ee_target_pykdl.M.GetQuaternion()}"
+                )
+                exit()
+
+            qpi = np.array(qpi)
+            q_prev = qpi
+            tq_new.append(qpi)
+
+            if verbose:
+                self.get_logger().info("===Original demo -> transform")
+                self.get_logger().info(f"   translation (xyz)| {np.array(tr)} --> {np.array(ee_target_pykdl.p)}")
+                self.get_logger().info(
+                    f"   quaternion (xyzw)| {np.array(qu)} --> {np.array(ee_target_pykdl.M.GetQuaternion())}"
+                )
+
+        tq_new = np.stack(tq_new)
+        return tq_new
+
+    @classmethod
+    def add_times_to_joints_seq(cls, joints_seq: Sequence[np.ndarray], frequency: int):
+        period = 1. / frequency
+
+        list_jnts_time = []
+        relative_time = 0.
+        for jnt in joints_seq:
+            relative_time += period
+            tuple_jnt_time = (relative_time, jnt)
+            list_jnts_time.append(tuple_jnt_time)
+
+        return list_jnts_time
+
+    @classmethod
+    def interpolate_joints_seq(cls, list_times_jnts, interpolate_frequency, initial_jnt, kind="cubic"):
+        all_times, all_joints = list(zip(*list_times_jnts))
+        all_times = np.asarray(all_times).ravel()
+        all_joints = np.asarray(all_joints)
+
+        # add initial jnt
+        all_times = np.insert(all_times, 0, 0.)
+        all_joints = np.vstack(tup=(initial_jnt.reshape(1, -1), all_joints))
+
+        total_duration = all_times[-1] - all_times[0]  # = all_times[-1]
+
+        # interpolate
+        time_interpolation = np.arange(start=0.0, stop=total_duration, step=1.0 / interpolate_frequency)
+        print(all_times, all_joints)
+        print(len(all_times), len(all_joints))
+        jnt_demo_interpolated = scipy.interpolate.interp1d(
+            all_times,
+            all_joints,
+            axis=0,
+            kind=kind,
+        )(time_interpolation)
+
+        # return the new list_times_jnts after interpolation
+        return list(zip(time_interpolation, jnt_demo_interpolated))
+
+
+    @classmethod
+    def time_multiply(cls, list_jnts_time, time_multiplier):
+        return [
+            (_time * time_multiplier, joint)
+            for (_time, joint) in list_jnts_time
+        ]
+
     def request_stacked_obs(self) -> Dict:
         return self._compute_stacked_obs(n_steps=self.n_obs_steps)
 
@@ -204,35 +295,40 @@ class EnvControlWrapper:
         return self._jstate
 
     def set_jstate(self, msg):
-        # print("Setting jstate", msg)
         self._jstate = msg
 
     def jpc_send_goal(self, jpos):
-        msg = Float64MultiArray()
-        msg.layout.dim = [MultiArrayDimension(size=7, stride=1)]
-        msg.data = list(jpos)
-        print("len msg", len(list(jpos)))
-        if len(list(jpos)) == 0:
-            return
-        self._jpc_pub.publish(msg)
+        raise NotImplementedError  # not compatible with JTC
 
     def get_joints_pos(self):
         pos_joints = np.asarray(self._jstate.position[:7])
         return pos_joints.astype(np.float32)
 
+    def send_jtc_action(self, jpos: list[tuple[np.ndarray, np.ndarray]]):
+        """
+        publish the jpos command in an appropriate message.
 
-class EnvControlWrapperWithCameras(EnvControlWrapper):
-    def __init__(self, jpc_pub, n_obs_steps, n_action_steps, path_bag_robot_description,
+        Args:
+            jpos (list[tuple[np.ndarray, np.ndarray]]): A list of length-2 tuple of (time, joint_position)
+        """
+
+        goal_msg = FollowJointTrajectory.Goal()
+        goal_msg.trajectory.joint_names = [f"panda_joint{i}" for i in range(1, 7+1)]
+
+        goal_msg.trajectory.points = [
+            JointTrajectoryPoint(positions=qi[:7], time_from_start=Duration(seconds=ti).to_msg()) for ti, qi in jpos
+        ]
+        self._jtc_client.wait_for_server()
+        self._send_goal_future = self._jtc_client.send_goal_async(goal_msg)
+
+
+class EnvControlWrapperWithCamerasJTC(EnvControlWrapperJTC):
+    def __init__(self, jtc_client, n_obs_steps, n_action_steps, path_bag_robot_description,
                  rff_encoder: RandomFourierFeatures, mass_goal=None):
-        super().__init__(jpc_pub, n_obs_steps, n_action_steps)
+        super().__init__(jtc_client, n_obs_steps, n_action_steps, path_bag_robot_description)
 
         self.camera_0_compressed_msg = None
         self.camera_0_depth_compressed_msg = None
-
-        self.robot_description = get_robot_description(path_bag_robot_description=path_bag_robot_description)
-        self.cv_bridge = CvBridge()
-        self._kdl = KDLSolver(self.robot_description)
-        self._kdl.set_kinematic_chain('panda_link0', 'panda_hand')
 
         self.mass_encoding_neutral = self._get_mass_encoding(mass=None, rff_encoder=rff_encoder)
         self.mass_encoding = self._get_mass_encoding(mass_goal, rff_encoder)
@@ -313,44 +409,13 @@ class EnvControlWrapperWithCameras(EnvControlWrapper):
 
         self._index_image += 1
 
-
-class EnvControlWrapperReplayDataset(EnvControlWrapperWithCameras):
-    def __init__(self, jpc_pub, n_obs_steps, n_action_steps, path_bag_robot_description,
-                 rff_encoder: RandomFourierFeatures, episode_to_replay, mass_goal=None):
-        super().__init__(jpc_pub, n_obs_steps, n_action_steps, path_bag_robot_description, rff_encoder, mass_goal)
-
-        self._index_obs = 0
-        self.episode_to_replay = episode_to_replay
-
-    def _compute_obs(self):
-        pos_end_effector = self.episode_to_replay["obs"]["eef"][self._index_obs]
-        camera_0_data = self.episode_to_replay["obs"]["camera_0"][self._index_obs]
-
-        self._save_image(camera_0_data)
-
-        return {
-            'eef': pos_end_effector.astype(np.float32),
-            'camera_0': camera_0_data.astype(np.float32),
-        }
-
-    @classmethod
-    def create(cls, jpc_pub, n_obs_steps, n_action_steps, path_bag_robot_description,
-               rff_encoder: RandomFourierFeatures, dataset, index_episode, mass_goal=None):
-        episode_to_replay = get_one_episode(dataset, mass_goal, index_episode)
-        return cls(jpc_pub, n_obs_steps, n_action_steps, path_bag_robot_description, rff_encoder, episode_to_replay,
-                   mass_goal)
-
-    def increment_step(self):
-        self._index_obs += 1
-
-
 class DiffusionController(NodeParameterMixin,
                           NodeWaitMixin,
                           NodeTFMixin,
                           rclpy.node.Node):
     NODE_PARAMETERS = dict(
         joy_topic='/spacenav/joy',
-        jpc_topic='/ruckig_controller/commands',
+        jtc_topic="/joint_trajectory_controller/follow_joint_trajectory",
         jstate_topic='/joint_states',
         cartesian_control_topic='/cartesian_control',
         camera_0_topic='/d405rs01/color/image_rect_raw/compressed',
@@ -361,13 +426,18 @@ class DiffusionController(NodeParameterMixin,
                  dataset,
                  *args, node_name='robot_calibrator', **kwargs):
         super().__init__(*args, node_name=node_name, node_parameters=self.NODE_PARAMETERS, **kwargs)
-        # jtc commandor
-        self.current_command = None
-        self.jpc_pub = self.create_publisher(Float64MultiArray, self.jpc_topic, 10)
+
+        self._jtc_client = ActionClient(
+            self,
+            FollowJointTrajectory,
+            self.jtc_topic,
+            callback_group=rclpy.callback_groups.ReentrantCallbackGroup(),
+        )
 
         # timer
         self.timer_period = 0.10  # seconds
         self.policy_timer = self.create_timer(self.timer_period, self.policy_cb)
+        self.waiting_timer = self.create_timer(0.01, self.waiting_cb)
 
         # robot
         latching_qos = QoSProfile(depth=1, durability=QoSDurabilityPolicy.RMW_QOS_POLICY_DURABILITY_TRANSIENT_LOCAL)
@@ -376,20 +446,12 @@ class DiffusionController(NodeParameterMixin,
         self.kdl = KDLSolver(self.robot_description)
         self.kdl.set_kinematic_chain('panda_link0', 'panda_hand')
 
-        # self.env = EnvControlWrapperReplayDataset.create(self.jpc_pub,
-        #                                                  n_obs_steps=n_obs_steps,
-        #                                                  n_action_steps=n_action_steps,
-        #                                                  path_bag_robot_description=path_bag_robot_description,
-        #                                                  rff_encoder=rff_encoder,
-        #                                                  mass_goal=mass_goal,
-        #                                                  dataset=dataset,
-        #                                                  index_episode=0)
-        self.env = EnvControlWrapperWithCameras(self.jpc_pub,
-                                                n_obs_steps=n_obs_steps,
-                                                n_action_steps=n_action_steps,
-                                                path_bag_robot_description=path_bag_robot_description,
-                                                rff_encoder=rff_encoder,
-                                                mass_goal=mass_goal, )
+        self.env = EnvControlWrapperWithCamerasJTC(self._jtc_client,
+                                                   n_obs_steps=n_obs_steps,
+                                                   n_action_steps=n_action_steps,
+                                                   path_bag_robot_description=path_bag_robot_description,
+                                                   rff_encoder=rff_encoder,
+                                                   mass_goal=mass_goal, )
         self.policy = policy
         self.policy = self.policy.eval()
         self.policy = self.policy.cuda()
@@ -404,164 +466,180 @@ class DiffusionController(NodeParameterMixin,
 
         self.start_time = None
 
+        self.frequency = 1
+        self.frequency_jstate = 10
+
         # joint states sub
         self.jstate_sub = self.create_subscription(
-            JointState, self.jstate_topic, lambda msg: self.env.set_jstate(msg), 10)
+            JointState, self.jstate_topic, lambda msg: self.env.set_jstate(msg), self.frequency_jstate)
 
         self.camera_0_sub = self.create_subscription(
-            CompressedImage, self.camera_0_topic, lambda msg: self.env.set_camera_0_compressed_msg(msg), 10)
+            CompressedImage, self.camera_0_topic, lambda msg: self.env.set_camera_0_compressed_msg(msg), self.frequency)
 
         self.camera_0_depth_sub = self.create_subscription(
-            Image, self.camera_0_depth_topic, lambda msg: self.env.set_camera_0_depth_compressed_msg(msg), 10)
+            Image, self.camera_0_depth_topic, lambda msg: self.env.set_camera_0_depth_compressed_msg(msg), self.frequency)
 
-    def jpc_send_goal(self, jpos):
-        msg = Float64MultiArray()
-        msg.layout.dim = [MultiArrayDimension(size=7, stride=1)]
-        msg.data = list(jpos)
-        # self.jpc_pub.publish(msg)
+
+        self._time_start_waiting = None
+        self._waiting = False
+        self._duration_wait = None
+
 
     def policy_cb(self):
+        self.env.append_obs()
+        if self.is_waiting():
+            print("Waiting...")
+            return
+
         obs = self.env.get_obs()
         if obs is None:
             print("obs is None")
             return
         jnts_obs = self.env.get_joints_pos()
 
-        delta = 2
+        pos_x, pos_q = self.kdl.compute_fk(jnts_obs)
+        # pos_q = np.asarray([pos_q[3], pos_q[0], pos_q[1], pos_q[2]])  # TODO: VERIFY ORDER CONVENTION
+        eef = np.concatenate([pos_x.ravel(), pos_q.ravel()])
+
+        delta = 5
         time_now = self.get_clock().now()
         if self.start_time is None:
             self.start_time = time_now
         dt = (time_now - self.start_time).nanoseconds / 1e9
+
+        # at first, just reach initial position
         if dt <= delta and delta > 0:
-            print("dt <= delta and delta > 0")
+            print("dt <= delta and delta > 0, Initializing")
             self.stacked_obs = self.env.reset()
+
+            jnts_target_1 = self.env.convert_eef_to_joints(self.env.initial_eef.reshape(1, -1), joints_init=jnts_obs).ravel()
+            duration_init = 5  # TODO: parametrise
+            times_joints_seq = [(duration_init, jnts_target_1)]
+            times_joints_seq = self.env.interpolate_joints_seq(times_joints_seq, interpolate_frequency=200, initial_jnt=jnts_obs, kind="linear")
+            self.env.step(times_joints_seq)
+            # print(times_joints_seq)
+
+            self.wait(duration_init + 0.05)
+
+            # print('-' * 25)
+            # print("Init part 2")
+            #
+            pos_x, pos_q = self.kdl.compute_fk(jnts_obs)
+            # pos_q = np.asarray([pos_q[3], pos_q[0], pos_q[1], pos_q[2]])  # TODO: VERIFY ORDER CONVENTION
+            eef = np.concatenate([pos_x.ravel(), pos_q.ravel()])
+            print("CURRENT EEF", eef)
+            #
+            # tr = eef[0:3]
+            # qu = eef[3:7]  # TODO: VERIFY THAT WE HAVE THE RIGHT CONVENTION HERE!!
+            # # tr, qu = self._kdl.compute_fk(js)  # PyKDL coordinate: tr=[x,y,z] and qu = [x,y,z,w]
+            #
+            # ee_target_pykdl = PyKDL.Frame(
+            #     PyKDL.Rotation.Quaternion(*qu),
+            #     PyKDL.Vector(*tr),
+            # )
+            #
+            # jnts_target_2 = self.kdl.compute_ik(jnts_obs, ee_target_pykdl)
+            # duration_init = 5  # TODO: parametrise
+            # times_joints_seq = [(duration_init, jnts_target_2)]
+            #
+            # jnts_obs = self.env.get_joints_pos()
+            # times_joints_seq = self.env.interpolate_joints_seq(times_joints_seq, interpolate_frequency=200, initial_jnt=jnts_obs, kind="linear")
+            # self.env.step(times_joints_seq)
+            # print(times_joints_seq)
+            #
+            # time.sleep(duration_init + 0.05)
             return
-        elif delta == 0:
-            self.stacked_obs = np.asarray([self.env.get_joints_pos() for _ in range(self.env.n_action_steps)])
-
-        if self.current_command is None:
-            self.current_command = self.env.get_joints_pos()
-
-        # joy_state = self.get_joy_state(resetp=True)
-        # dx, dq = joy_state['pos']
-        #
-        # self.publish_cartesian_commands(dx, dq)
+        elif delta <= 0:
+            raise NotImplementedError
 
         # jac
-        pos_x, pos_q = self.kdl.compute_fk(jnts_obs)
-        pos_q = np.asarray([pos_q[3], pos_q[0], pos_q[1], pos_q[2]])
-        # init_pos_x, init_pos_q = self.kdl.compute_fk(self.env.init_pos)
-        # pos = obs["eef"]
-        # assert len(pos) == 7
-        # pos_x = pos[:3]
-        # pos_q = pos[3:]
+
 
         # keys_obs = ("camera_0", "eef", "mass") # TODO
-        # keys_obs = ("camera_0", "eef", ) # TODO
+        # keys_obs = ("camera_0", "eef", )
         keys_obs = ("eef",)
 
-        if self.env.queue_actions.empty():
-            self.get_logger().info("Adding actions to buffer")
-            with torch.no_grad():
-                stacked_obs = self.env.request_stacked_obs()
+        self.get_logger().info("Adding actions to buffer")
+        with torch.no_grad():
+            stacked_obs = self.env.request_stacked_obs()
 
-                stacked_neutral_obs = {
-                    key: value
-                    for key, value in stacked_obs.items()
-                }
+            # stacked_neutral_obs = {
+            #     key: value
+            #     for key, value in stacked_obs.items()
+            # }
 
-                print(list(stacked_obs.keys()), list(obs.keys()))
+            stacked_obs = dict_apply(stacked_obs, lambda x: x.reshape(1, *x.shape))
+            # stacked_neutral_obs = dict_apply(stacked_neutral_obs, lambda x: x.reshape(1, *x.shape))
 
-                # TODO: add back
-                # del stacked_obs["mass_neutral"]
-                # del stacked_neutral_obs["mass"]
-                # stacked_neutral_obs["mass"] = stacked_neutral_obs["mass_neutral"]
+            filtered_stacked_obs = dict()
+            # filtered_stacked_neutral_obs = dict()
+            for key, value in stacked_obs.items():
+                if key in keys_obs:
+                    filtered_stacked_obs[key] = stacked_obs[key]
+                    # filtered_stacked_neutral_obs[key] = stacked_neutral_obs[key]
+                else:
+                    ...
 
-                stacked_obs = dict_apply(stacked_obs, lambda x: x.reshape(1, *x.shape))
-                stacked_neutral_obs = dict_apply(stacked_neutral_obs, lambda x: x.reshape(1, *x.shape))
+            # device transfer
+            obs_dict = dict_apply(filtered_stacked_obs,
+                                  lambda x: torch.from_numpy(x).cuda())
+            # neutral_obs_dict = dict_apply(filtered_stacked_neutral_obs,
+            #                               lambda x: torch.from_numpy(x).cuda())
 
-                filtered_stacked_obs = dict()
-                filtered_stacked_neutral_obs = dict()
-                for key, value in stacked_obs.items():
-                    if key in keys_obs:
-                        filtered_stacked_obs[key] = stacked_obs[key]
-                        filtered_stacked_neutral_obs[key] = stacked_neutral_obs[key]
-                    else:
-                        ...
+            # action_dict = self.policy.predict_action(obs_dict, neutral_obs_dict)  # TODO
+            action_dict = self.policy.predict_action(obs_dict)
+            np_action_dict = dict_apply(action_dict,
+                                        lambda x: x.detach().to('cpu').numpy())
 
-                # device transfer
-                obs_dict = dict_apply(filtered_stacked_obs,
-                                      lambda x: torch.from_numpy(x).cuda())
-                neutral_obs_dict = dict_apply(filtered_stacked_neutral_obs,
-                                              lambda x: torch.from_numpy(x).cuda())
+            absolute_actions_eef = np_action_dict['action']
 
-                # action_dict = self.policy.predict_action_from_several_samples(obs_dict, self.critic, )
+            metrics = np_action_dict['metrics']
+            wandb.log(metrics)
+            if absolute_actions_eef.shape[0] == 1:
+                absolute_actions_eef = absolute_actions_eef.reshape(*absolute_actions_eef.shape[1:])
 
-                # print(dict_apply(stacked_obs, lambda x: x.shape))
-                # print("eef", stacked_obs["eef"])
-                # print(dict_apply(obs_dict, lambda x: x.shape))
+        print("eef", eef)
+        print("absolute_actions_eef", absolute_actions_eef)
+        action_joints = self.env.convert_eef_to_joints(absolute_actions_eef, joints_init=jnts_obs, convert_eef_to_kdl_convention=True)
+        times_joints_seq = self.env.add_times_to_joints_seq(action_joints, frequency=10)  # TODO: frequency
+        times_joints_seq = self.env.time_multiply(times_joints_seq, time_multiplier=1.)  # TODO: parametrize
+        times_joints_seq = self.env.interpolate_joints_seq(times_joints_seq, interpolate_frequency=200, initial_jnt=jnts_obs)  # TODO: parametrize
+        duration = times_joints_seq[-1][0]
+        self.env.step(times_joints_seq)
+        self.wait(duration + 0.05)
+        # TODO: hope observations keep getting collected in this duration.
 
-                # action_dict = self.policy.predict_action(obs_dict, neutral_obs_dict)  # TODO
-                action_dict = self.policy.predict_action(obs_dict)
-                np_action_dict = dict_apply(action_dict,
-                                            lambda x: x.detach().to('cpu').numpy())
+    def is_waiting(self):
+        return self._waiting
 
-                absolute_actions = np_action_dict['action']
+    def waiting_cb(self):
+        # print("IN WAITING CB")
 
-                metrics = np_action_dict['metrics']
-                wandb.log(metrics)
-                if absolute_actions.shape[0] == 1:
-                    absolute_actions = absolute_actions.reshape(*absolute_actions.shape[1:])
+        # at initialization, do not wait
+        if self._time_start_waiting is None:
+            self._waiting = False
 
-                # reference_action = stacked_obs["eef"][0, 0, :]
-                # absolute_actions = RealFrankaImageDataset.compute_absolute_action(relative_actions, reference_action)
-                # absolute_actions = RealFrankaImageDataset.compute_absolute_action(relative_actions, self.env.initial_eef)
+        if not self._waiting:
+            return
+        else:
+            assert self._duration_wait is not None
+            assert self._time_start_waiting is not None
 
-                self.env.push_actions([_dq for _dq in absolute_actions])
+            time_current = self.get_clock().now().nanoseconds
 
-                # TODO
-                # self.env.push_actions([filtered_stacked_obs["eef"][-1] for _ in range(5)], force=True)
-                # self.env.increment_step()
+            if (time_current - self._time_start_waiting) / 1e9 > self._duration_wait:
+                self._duration_wait = None
+                self._time_start_waiting = None
+                self._waiting = False
+            else:
+                self._waiting = True
 
-                # self.env.push_actions([array_dq[0]])
-
-        action_to_execute = self.env.get_from_queue_actions()
-        action_to_execute = action_to_execute.ravel()
-        # dq = action_to_execute - jnts_obs
-
-        new_pos_x = action_to_execute[0:3]
-        new_pos_q = action_to_execute[3:7].ravel()
-        new_pos_q = new_pos_q / np.linalg.norm(new_pos_q)
-        # new_pos = se3(new_pos_x, new_pos_q)
-        # new_pos_q = quat.from_float_array(new_pos_q)
-        dx = (new_pos_x - pos_x)
-        # dq_rot = (quat.from_float_array(pos_q).conjugate() * quat.from_float_array(init_pos_q))
-        # dq_rot = (quat.from_float_array(init_pos_q) * quat.from_float_array(pos_q).conjugate())
-        # print(new_pos.q, type(pos_q), type(pos_q.conjugate()))
-        # print(new_pos.q)
-        new_pos_q = quat.from_float_array(new_pos_q)
-        pos_q = quat.from_float_array(pos_q)
-
-        dq_rot = new_pos_q * pos_q.conjugate()
-
-        # dq_rot = quat.from_float_array([1,0,0,0])
-        # self.get_logger().info(str(f"target new pos q: {new_pos_q}"))
-
-        # self.get_logger().info(str(("Predicted actions: ", dx, dq_rot, pos_q, new_pos_q)))
-
-        J = np.array(self.kdl.compute_jacobian(jnts_obs))
-        dq, *_ = np.linalg.lstsq(J, np.concatenate([dx, quat.as_rotation_vector(dq_rot)]))
-
-        # if np.max(np.abs(dq)) < 1e-4:
-        #     return
-
-        # print(self.current_command, jnts_obs)
-        self.current_command = (0.3 * self.current_command + 0.7 * jnts_obs) + dq  # TODO
-        # self.current_command = dq + jnts_obs
-
-        self.get_logger().info(f"DIFFERENCE {self.current_command - jnts_obs}")
-
-        self.env.step(self.current_command)
+    def wait(self, seconds):
+        if self.is_waiting():
+            raise RuntimeError("Already Waiting, this function should not be called twice in a row...")
+        self._waiting = True
+        self._duration_wait = seconds
+        self._time_start_waiting = self.get_clock().now().nanoseconds
 
 
 @hydra.main(
@@ -570,9 +648,6 @@ class DiffusionController(NodeParameterMixin,
     #     'diffusion_policy','config'))
 )
 def main(args=None):
-    # ckpt_path = "/home/ros/humble/src/diffusion_policy/data/outputs/2024.04.01/18.11.01_train_diffusion_unet_image_franka_kitchen_lowdim/checkpoints/latest.ckpt"
-    # ckpt_path = "/home/ros/humble/src/diffusion_policy/data/outputs/2024.04.04/13.48.15_train_diffusion_unet_image_franka_kitchen_lowdim/checkpoints/latest.ckpt"
-    # ckpt_path = "/home/ros/humble/src/diffusion_policy/data/outputs/2024.04.04/19.35.49_train_diffusion_unet_image_franka_kitchen_lowdim/checkpoints/latest.ckpt"
     ckpt_path = "/home/ros/humble/src/diffusion_policy/data/outputs/2024.04.08/14.10.05_train_diffusion_unet_image_franka_kitchen_lowdim/checkpoints/latest.ckpt"
 
     # n_obs_steps = 2 # TODO
@@ -588,9 +663,6 @@ def main(args=None):
     workspace = cls(cfg)
     workspace: BaseWorkspace
     workspace.load_payload(payload, exclude_keys=None, include_keys=None)
-    # _config_noise_scheduler = {**copy.deepcopy(cfg.policy.noise_scheduler)}
-    # del _config_noise_scheduler["_target_"]
-    # workspace.model.noise_scheduler = DDIMGuidedScheduler(coefficient_reward=0., **_config_noise_scheduler)
 
     # configure logging
     output_dir = HydraConfig.get().runtime.output_dir
@@ -602,17 +674,7 @@ def main(args=None):
 
     dataset = hydra.utils.instantiate(cfg.task.dataset)
 
-    # workspace: BaseWorkspace = TrainDiffusionUnetLowdimWorkspace(cfg)
-    # workspace.load_checkpoint()
-    #
-    # workspace.model.eval()
-    # workspace.model.cuda()
-    # print(workspace.model.normalizer["obs"].params_dict["offset"])
-
     policy = workspace.model
-    # workspace.model = workspace.model.cuda()
-    # workspace.ema_model = workspace.ema_model.cuda()
-    # workspace.model = torch.compile(workspace.model).cuda()
 
     args = None
     rclpy.init(args=args)
