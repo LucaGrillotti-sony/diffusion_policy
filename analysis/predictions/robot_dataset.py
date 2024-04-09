@@ -100,21 +100,22 @@ def get_one_episode(dataset: RealFrankaImageDataset, mass, index_episode: int = 
         neutral_mass_obs = dataset.rff_encoder.encode_vector(neutral_mass_v)
 
     # TODO
-    # camera_0_rgb = replay_buffer["camera_1"][index_start:index_end]
+    camera_0_rgb = replay_buffer["camera_1"][index_start:index_end]
     # camera_0_depth = replay_buffer["camera_0"][index_start:index_end]
-    # camera_0_data = RealFrankaImageDataset.concatenate_rgb_depth(camera_0_rgb, camera_0_depth)
-    # camera_0_data = RealFrankaImageDataset.moveaxis_rgbd(camera_0_data)
-    # camera_0_data = RealFrankaImageDataset.rgbd_255_to_1(camera_0_data)
+    # camera_0_data = RealFrankaImageDataset.concatenate_rgb_depth(camera_0_rgb, camera_0_depth)\
+    camera_0_data = camera_0_rgb
+    camera_0_data = RealFrankaImageDataset.moveaxis_rgbd(camera_0_data)
+    camera_0_data = RealFrankaImageDataset.rgbd_255_to_1(camera_0_data)
 
     return {
         "obs": {  # TODO: update this too
-            # "camera_0": camera_0_data,
+            "camera_1": camera_0_data - camera_0_data,
             "eef": replay_buffer["eef"][index_start:index_end],
             # "mass": mass_obs,
         },
         "action": replay_buffer['action'][index_start:index_end],
         "neutral_obs": {  # TODO: update this too
-            # "camera_0": camera_0_data,
+            "camera_1": camera_0_data - camera_0_data,
             "eef": replay_buffer["eef"][index_start:index_end],
             # "mass": neutral_mass_obs,
         },
@@ -131,7 +132,7 @@ def _get_mass_encoding(mass, rff_encoder):
 
 
 def main():
-    ckpt_path = "/home/ros/humble/src/diffusion_policy/data/outputs/2024.04.08/14.10.05_train_diffusion_unet_image_franka_kitchen_lowdim/checkpoints/latest.ckpt"  # eef only, num_obs_frame_stack = 4
+    ckpt_path = "/home/ros/humble/src/diffusion_policy/data/outputs/2024.04.08/16.24.23_train_diffusion_unet_image_franka_kitchen_lowdim/checkpoints/epoch=0280-mse_error_val=0.000.ckpt"  # with images
     dataset_dir = "/home/ros/humble/src/diffusion_policy/data/fake_puree_experiments/diffusion_policy_dataset_exp2_v2/"
 
     payload = torch.load(open(ckpt_path, 'rb'), pickle_module=dill)
@@ -148,7 +149,7 @@ def main():
 
     # list_episodes = get_dataset(dataset_dir)
     mass = 1000  # TODO: not taking mass atm
-    index_episode = 10
+    index_episode = 30
     one_episode = get_one_episode(dataset, mass=mass, index_episode=index_episode)
 
     sequence_observations = one_episode["obs"]
@@ -192,8 +193,6 @@ def main():
     #     plt.savefig(path_debug / f"image_{i}.png")
     #     plt.clf()
     #     plt.cla()
-        
-
 
     for index_start in range(n_obs_steps - 1, num_obs - n_obs_steps - n_action_steps, n_action_steps):
         print(index_start)

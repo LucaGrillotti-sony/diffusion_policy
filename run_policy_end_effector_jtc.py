@@ -83,7 +83,7 @@ class EnvControlWrapperJTC:
         self.observation_space = gym.spaces.Dict(
             {
                 'eef': gym.spaces.Box(-8, 8, shape=(7,), dtype=np.float32),
-                # 'camera_0': gym.spaces.Box(0, 1, shape=(4, 240, 240), dtype=np.float32),  # TODO
+                'camera_1': gym.spaces.Box(0, 1, shape=(3, 240, 240), dtype=np.float32),  # TODO 3 -> 4, camera_1 -> camera_0
                 # 'mass': gym.spaces.Box( -1, 1, shape=(256,), dtype=np.float32),
                 # 'mass_neutral': gym.spaces.Box( -1, 1, shape=(256,), dtype=np.float32),
             }
@@ -104,7 +104,7 @@ class EnvControlWrapperJTC:
         # start with the initial position as a goal
         # self.initial_eef = RealFrankaImageDataset.FIXED_INITIAL_EEF
         initial_eef = np.asarray(
-            [0.40996018, 0.03893278, 0.45212647, 0.0673149, 0.96574436, 0.2338243, 0.03675712]
+            [0.42996018, 0.05893278, 0.42212647, 0.0673149, 0.96574436, 0.2338243, 0.03675712]
         )  # TODO: deal with initial eef
         self.initial_eef = self.convert_eef_to_kdl(initial_eef)  # PyKDL coordinate: tr=[x,y,z] and qu = [x,y,z,w]
 
@@ -355,14 +355,14 @@ class EnvControlWrapperWithCamerasJTC(EnvControlWrapperJTC):
 
     def get_obs(self):
         if (self._jstate is None
-                # or self.camera_0_compressed_msg is None # TODO
-                # or self.camera_0_depth_compressed_msg is None
+                or self.camera_0_compressed_msg is None
+                # or self.camera_0_depth_compressed_msg is None  # TODO
         ):
             print(f"WARNING, the following are None:")
             print(f"self._jstate: {'not None' if self._jstate is not None else 'None'}")
-            # print(f"self.camera_0_compressed_msg: {'not None' if self.camera_0_compressed_msg is not None else 'None'}")  # TODO
+            print(f"self.camera_0_compressed_msg: {'not None' if self.camera_0_compressed_msg is not None else 'None'}")
             # print(
-            #     f"self.camera_0_depth_compressed_msg: {'not None' if self.camera_0_depth_compressed_msg is not None else 'None'}")
+            #     f"self.camera_0_depth_compressed_msg: {'not None' if self.camera_0_depth_compressed_msg is not None else 'None'}") # TODO
             return None
         else:
             return self._compute_obs()
@@ -370,24 +370,23 @@ class EnvControlWrapperWithCamerasJTC(EnvControlWrapperJTC):
     def _compute_obs(self):
         pos_end_effector = end_effector_calculator(self._jstate, self._kdl)
 
-
-        # TODO
-        # camera_0_data = convert_image(cv_bridge=self.cv_bridge, msg_ros=self.camera_0_compressed_msg)
-        # camera_0_data = self._bgr_to_rgb(camera_0_data)
+        camera_0_data = convert_image(cv_bridge=self.cv_bridge, msg_ros=self.camera_0_compressed_msg)
+        camera_0_data = self._bgr_to_rgb(camera_0_data)
         #
         # camera_0_depth_data = convert_image(cv_bridge=self.cv_bridge, msg_ros=self.camera_0_depth_compressed_msg,
         #                                     is_depth=True)
         #
-        # camera_0_full_data = RealFrankaImageDataset.concatenate_rgb_depth(camera_0_data, camera_0_depth_data)
-        # camera_0_full_data = RealFrankaImageDataset.moveaxis_rgbd(camera_0_full_data, single_rgb=True)
-        # camera_0_full_data = RealFrankaImageDataset.rgbd_255_to_1(camera_0_full_data)
+        # camera_0_full_data = RealFrankaImageDataset.concatenate_rgb_depth(camera_0_data, camera_0_depth_data)  # TODO
+        camera_0_full_data = camera_0_data
+        camera_0_full_data = RealFrankaImageDataset.moveaxis_rgbd(camera_0_full_data, single_rgb=True)
+        camera_0_full_data = RealFrankaImageDataset.rgbd_255_to_1(camera_0_full_data)
 
         # self._save_image(camera_0_full_data.astype(np.float32))
 
         return {
             'eef': pos_end_effector.astype(np.float32),
-            # 'camera_0': camera_0_full_data.astype(np.float32),  # TODO
-            # 'mass': self.mass_encoding.astype(np.float32),
+            'camera_1': camera_0_full_data.astype(np.float32),  # TODO camera_1 -> camera_0
+            # 'mass': self.mass_encoding.astype(np.float32),  # TODO
             # 'mass_neutral': self.mass_encoding_neutral.astype(np.float32),
         }
 
@@ -556,8 +555,8 @@ class DiffusionController(NodeParameterMixin,
 
 
         # keys_obs = ("camera_0", "eef", "mass") # TODO
-        # keys_obs = ("camera_0", "eef", )
-        keys_obs = ("eef",)
+        keys_obs = ("camera_1", "eef", )  # TODO: camera_1 -> camera_0
+        # keys_obs = ("eef",)
 
         self.get_logger().info("Adding actions to buffer")
         with torch.no_grad():
@@ -648,7 +647,8 @@ class DiffusionController(NodeParameterMixin,
     #     'diffusion_policy','config'))
 )
 def main(args=None):
-    ckpt_path = "/home/ros/humble/src/diffusion_policy/data/outputs/2024.04.08/14.10.05_train_diffusion_unet_image_franka_kitchen_lowdim/checkpoints/latest.ckpt"
+    # ckpt_path = "/home/ros/humble/src/diffusion_policy/data/outputs/2024.04.08/14.10.05_train_diffusion_unet_image_franka_kitchen_lowdim/checkpoints/latest.ckpt"  # only EEF
+    ckpt_path = "/home/ros/humble/src/diffusion_policy/data/outputs/2024.04.08/16.24.23_train_diffusion_unet_image_franka_kitchen_lowdim/checkpoints/epoch=0280-mse_error_val=0.000.ckpt"  # with images, n_obs_frames_stack = 4
 
     # n_obs_steps = 2 # TODO
     n_obs_steps = 4
