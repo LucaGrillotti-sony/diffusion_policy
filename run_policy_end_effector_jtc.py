@@ -381,7 +381,7 @@ class EnvControlWrapperWithCamerasJTC(EnvControlWrapperJTC):
         camera_0_full_data = RealFrankaImageDataset.moveaxis_rgbd(camera_0_full_data, single_rgb=True)
         camera_0_full_data = RealFrankaImageDataset.rgbd_255_to_1(camera_0_full_data)
 
-        # self._save_image(camera_0_full_data.astype(np.float32))
+        self._save_image(camera_0_full_data.astype(np.float32))
 
         return {
             'eef': pos_end_effector.astype(np.float32),

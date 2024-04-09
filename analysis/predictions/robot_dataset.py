@@ -109,13 +109,13 @@ def get_one_episode(dataset: RealFrankaImageDataset, mass, index_episode: int = 
 
     return {
         "obs": {  # TODO: update this too
-            "camera_1": camera_0_data - camera_0_data,
+            "camera_1": camera_0_data,
             "eef": replay_buffer["eef"][index_start:index_end],
             # "mass": mass_obs,
         },
         "action": replay_buffer['action'][index_start:index_end],
         "neutral_obs": {  # TODO: update this too
-            "camera_1": camera_0_data - camera_0_data,
+            "camera_1": camera_0_data,
             "eef": replay_buffer["eef"][index_start:index_end],
             # "mass": neutral_mass_obs,
         },
@@ -179,20 +179,20 @@ def main():
     path_debug.mkdir(exist_ok=True)
 
     # todo
-    # images = sequence_observations["camera_0"]
-    #
-    # for i in range(num_obs):
-    #     plt.clf()
-    #     plt.cla()
-    #     img = images[i]
-    #     img = img[:3] # Taking only RGB
-    #     # img = np.repeat(img, 3, axis=0)
-    #     print("image", i, images[i])
-    #     img = np.moveaxis(img, 0, -1)
-    #     plt.imshow(img)
-    #     plt.savefig(path_debug / f"image_{i}.png")
-    #     plt.clf()
-    #     plt.cla()
+    images = sequence_observations["camera_1"]
+
+    for i in range(num_obs):
+        plt.clf()
+        plt.cla()
+        img = images[i]
+        img = img[:3] # Taking only RGB
+        # img = np.repeat(img, 3, axis=0)
+        print("image", i, images[i])
+        img = np.moveaxis(img, 0, -1)
+        plt.imshow(img)
+        plt.savefig(path_debug / f"image_{i}.png")
+        plt.clf()
+        plt.cla()
 
     for index_start in range(n_obs_steps - 1, num_obs - n_obs_steps - n_action_steps, n_action_steps):
         print(index_start)
