@@ -111,13 +111,13 @@ def get_one_episode(dataset: RealFrankaImageDataset, mass, index_episode: int = 
         "obs": {  # TODO: update this too
             "camera_1": camera_0_data,
             "eef": replay_buffer["eef"][index_start:index_end],
-            # "mass": mass_obs,
+            "mass": mass_obs,
         },
         "action": replay_buffer['action'][index_start:index_end],
         "neutral_obs": {  # TODO: update this too
             "camera_1": camera_0_data,
             "eef": replay_buffer["eef"][index_start:index_end],
-            # "mass": neutral_mass_obs,
+            "mass": neutral_mass_obs,
         },
     }
 
@@ -132,7 +132,8 @@ def _get_mass_encoding(mass, rff_encoder):
 
 
 def main():
-    ckpt_path = "/home/ros/humble/src/diffusion_policy/data/outputs/2024.04.08/16.24.23_train_diffusion_unet_image_franka_kitchen_lowdim/checkpoints/epoch=0280-mse_error_val=0.000.ckpt"  # with images
+    # ckpt_path = "/home/ros/humble/src/diffusion_policy/data/outputs/2024.04.08/16.24.23_train_diffusion_unet_image_franka_kitchen_lowdim/checkpoints/epoch=0280-mse_error_val=0.000.ckpt"  # with images
+    ckpt_path = "/home/ros/humble/src/diffusion_policy/data/outputs/2024.04.09/18.02.53_train_diffusion_unet_image_franka_kitchen_lowdim/checkpoints/epoch=1530-mse_error_val=0.000.ckpt"  # with images + mass
     dataset_dir = "/home/ros/humble/src/diffusion_policy/data/fake_puree_experiments/diffusion_policy_dataset_exp2_v2/"
 
     payload = torch.load(open(ckpt_path, 'rb'), pickle_module=dill)
@@ -148,8 +149,8 @@ def main():
     policy = policy.eval()
 
     # list_episodes = get_dataset(dataset_dir)
-    mass = 1000  # TODO: not taking mass atm
-    index_episode = 30
+    mass = 3.0
+    index_episode = 40
     one_episode = get_one_episode(dataset, mass=mass, index_episode=index_episode)
 
     sequence_observations = one_episode["obs"]
@@ -181,18 +182,18 @@ def main():
     # todo
     images = sequence_observations["camera_1"]
 
-    for i in range(num_obs):
-        plt.clf()
-        plt.cla()
-        img = images[i]
-        img = img[:3] # Taking only RGB
-        # img = np.repeat(img, 3, axis=0)
-        print("image", i, images[i])
-        img = np.moveaxis(img, 0, -1)
-        plt.imshow(img)
-        plt.savefig(path_debug / f"image_{i}.png")
-        plt.clf()
-        plt.cla()
+    # for i in range(num_obs):
+    #     plt.clf()
+    #     plt.cla()
+    #     img = images[i]
+    #     img = img[:3] # Taking only RGB
+    #     # img = np.repeat(img, 3, axis=0)
+    #     print("image", i, images[i])
+    #     img = np.moveaxis(img, 0, -1)
+    #     plt.imshow(img)
+    #     plt.savefig(path_debug / f"image_{i}.png")
+    #     plt.clf()
+    #     plt.cla()
 
     for index_start in range(n_obs_steps - 1, num_obs - n_obs_steps - n_action_steps, n_action_steps):
         print(index_start)
@@ -211,8 +212,8 @@ def main():
             neutral_obs_dict = dict_apply(np_neutral_obs_dict,
                                           lambda x: torch.from_numpy(x).cuda())
             
-            # action_dict = policy.predict_action(obs_dict, neutral_obs_dict) TODO
-            action_dict = policy.predict_action(obs_dict)
+            action_dict = policy.predict_action(obs_dict, neutral_obs_dict)
+            # action_dict = policy.predict_action(neutral_obs_dict)
             np_action_dict = dict_apply(action_dict,
                                         lambda x: x.detach().to('cpu').numpy())
 

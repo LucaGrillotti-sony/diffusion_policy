@@ -107,6 +107,10 @@ policy:
         shape:
          - 7
         type: low_dim
+      mass:
+        shape:
+          - 256 # after RFF
+        type: low_dim
   noise_scheduler:
     _target_: diffusers.schedulers.scheduling_ddpm.DDPMScheduler
     num_train_timesteps: 100
@@ -147,6 +151,10 @@ critic:
       eef:
         shape:
           - 7
+        type: low_dim
+      mass:
+        shape:
+          - 256 # after RFF
         type: low_dim
   obs_as_global_cond: true
   gamma: 0.99

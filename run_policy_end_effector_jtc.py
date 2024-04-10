@@ -84,8 +84,8 @@ class EnvControlWrapperJTC:
             {
                 'eef': gym.spaces.Box(-8, 8, shape=(7,), dtype=np.float32),
                 'camera_1': gym.spaces.Box(0, 1, shape=(3, 240, 240), dtype=np.float32),  # TODO 3 -> 4, camera_1 -> camera_0
-                # 'mass': gym.spaces.Box( -1, 1, shape=(256,), dtype=np.float32),
-                # 'mass_neutral': gym.spaces.Box( -1, 1, shape=(256,), dtype=np.float32),
+                'mass': gym.spaces.Box( -1, 1, shape=(256,), dtype=np.float32),
+                'mass_neutral': gym.spaces.Box( -1, 1, shape=(256,), dtype=np.float32),
             }
         )
         self.action_space = gym.spaces.Box(
@@ -386,8 +386,8 @@ class EnvControlWrapperWithCamerasJTC(EnvControlWrapperJTC):
         return {
             'eef': pos_end_effector.astype(np.float32),
             'camera_1': camera_0_full_data.astype(np.float32),  # TODO camera_1 -> camera_0
-            # 'mass': self.mass_encoding.astype(np.float32),  # TODO
-            # 'mass_neutral': self.mass_encoding_neutral.astype(np.float32),
+            'mass': self.mass_encoding.astype(np.float32),
+            'mass_neutral': self.mass_encoding_neutral.astype(np.float32),
         }
 
     def _bgr_to_rgb(self, data):
@@ -554,39 +554,42 @@ class DiffusionController(NodeParameterMixin,
         # jac
 
 
-        # keys_obs = ("camera_0", "eef", "mass") # TODO
-        keys_obs = ("camera_1", "eef", )  # TODO: camera_1 -> camera_0
+        keys_obs = ("camera_1", "eef", "mass") # TODO
+        # keys_obs = ("camera_1", "eef", )  # TODO: camera_1 -> camera_0
         # keys_obs = ("eef",)
 
         self.get_logger().info("Adding actions to buffer")
         with torch.no_grad():
             stacked_obs = self.env.request_stacked_obs()
 
-            # stacked_neutral_obs = {
-            #     key: value
-            #     for key, value in stacked_obs.items()
-            # }
+            stacked_neutral_obs = {
+                key: value
+                for key, value in stacked_obs.items()
+            }
+            stacked_neutral_obs["mass"] = stacked_neutral_obs["mass_neutral"]
+            del stacked_obs["mass_neutral"]
+            del stacked_neutral_obs["mass_neutral"]
 
             stacked_obs = dict_apply(stacked_obs, lambda x: x.reshape(1, *x.shape))
-            # stacked_neutral_obs = dict_apply(stacked_neutral_obs, lambda x: x.reshape(1, *x.shape))
+            stacked_neutral_obs = dict_apply(stacked_neutral_obs, lambda x: x.reshape(1, *x.shape))
 
             filtered_stacked_obs = dict()
-            # filtered_stacked_neutral_obs = dict()
+            filtered_stacked_neutral_obs = dict()
             for key, value in stacked_obs.items():
                 if key in keys_obs:
                     filtered_stacked_obs[key] = stacked_obs[key]
-                    # filtered_stacked_neutral_obs[key] = stacked_neutral_obs[key]
+                    filtered_stacked_neutral_obs[key] = stacked_neutral_obs[key]
                 else:
                     ...
 
             # device transfer
             obs_dict = dict_apply(filtered_stacked_obs,
                                   lambda x: torch.from_numpy(x).cuda())
-            # neutral_obs_dict = dict_apply(filtered_stacked_neutral_obs,
-            #                               lambda x: torch.from_numpy(x).cuda())
+            neutral_obs_dict = dict_apply(filtered_stacked_neutral_obs,
+                                          lambda x: torch.from_numpy(x).cuda())
 
-            # action_dict = self.policy.predict_action(obs_dict, neutral_obs_dict)  # TODO
-            action_dict = self.policy.predict_action(obs_dict)
+            action_dict = self.policy.predict_action(obs_dict, neutral_obs_dict)  # TODO
+            # action_dict = self.policy.predict_action(obs_dict)
             np_action_dict = dict_apply(action_dict,
                                         lambda x: x.detach().to('cpu').numpy())
 
@@ -600,7 +603,7 @@ class DiffusionController(NodeParameterMixin,
         print("eef", eef)
         print("absolute_actions_eef", absolute_actions_eef)
         action_joints = self.env.convert_eef_to_joints(absolute_actions_eef, joints_init=jnts_obs, convert_eef_to_kdl_convention=True)
-        times_joints_seq = self.env.add_times_to_joints_seq(action_joints, frequency=10)  # TODO: frequency
+        times_joints_seq = self.env.add_times_to_joints_seq(action_joints, frequency=5)  # TODO: frequency
         times_joints_seq = self.env.time_multiply(times_joints_seq, time_multiplier=1.)  # TODO: parametrize
         times_joints_seq = self.env.interpolate_joints_seq(times_joints_seq, interpolate_frequency=200, initial_jnt=jnts_obs)  # TODO: parametrize
         duration = times_joints_seq[-1][0]
@@ -648,7 +651,9 @@ class DiffusionController(NodeParameterMixin,
 )
 def main(args=None):
     # ckpt_path = "/home/ros/humble/src/diffusion_policy/data/outputs/2024.04.08/14.10.05_train_diffusion_unet_image_franka_kitchen_lowdim/checkpoints/latest.ckpt"  # only EEF
-    ckpt_path = "/home/ros/humble/src/diffusion_policy/data/outputs/2024.04.08/16.24.23_train_diffusion_unet_image_franka_kitchen_lowdim/checkpoints/epoch=0280-mse_error_val=0.000.ckpt"  # with images, n_obs_frames_stack = 4
+    # ckpt_path = "/home/ros/humble/src/diffusion_policy/data/outputs/2024.04.08/16.24.23_train_diffusion_unet_image_franka_kitchen_lowdim/checkpoints/epoch=0280-mse_error_val=0.000.ckpt"  # with images, n_obs_frames_stack = 4
+    ckpt_path = "/home/ros/humble/src/diffusion_policy/data/outputs/2024.04.09/18.02.53_train_diffusion_unet_image_franka_kitchen_lowdim/checkpoints/epoch=1530-mse_error_val=0.000.ckpt"  # with images + mass, n_obs_frames_stack = 4
+
 
     # n_obs_steps = 2 # TODO
     n_obs_steps = 4
@@ -676,6 +681,8 @@ def main(args=None):
 
     policy = workspace.model
 
+    MASS_GOAL = 2.5
+
     args = None
     rclpy.init(args=args)
     try:
@@ -686,7 +693,7 @@ def main(args=None):
                                 n_action_steps=n_action_steps,
                                 path_bag_robot_description=path_bag_robot_description,
                                 rff_encoder=dataset.rff_encoder,
-                                mass_goal=1000,  # TODO: not supposed to be taken into account now.
+                                mass_goal=MASS_GOAL,
                                 dataset=dataset,
                                 ),
         ]
