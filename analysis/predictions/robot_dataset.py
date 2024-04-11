@@ -133,7 +133,8 @@ def _get_mass_encoding(mass, rff_encoder):
 
 def main():
     # ckpt_path = "/home/ros/humble/src/diffusion_policy/data/outputs/2024.04.08/16.24.23_train_diffusion_unet_image_franka_kitchen_lowdim/checkpoints/epoch=0280-mse_error_val=0.000.ckpt"  # with images
-    ckpt_path = "/home/ros/humble/src/diffusion_policy/data/outputs/2024.04.09/18.02.53_train_diffusion_unet_image_franka_kitchen_lowdim/checkpoints/epoch=1530-mse_error_val=0.000.ckpt"  # with images + mass
+    # ckpt_path = "/home/ros/humble/src/diffusion_policy/data/outputs/2024.04.09/18.02.53_train_diffusion_unet_image_franka_kitchen_lowdim/checkpoints/epoch=1530-mse_error_val=0.000.ckpt"  # with images + mass
+    ckpt_path = "/home/ros/humble/src/diffusion_policy/data/outputs/2024.04.10/18.53.16_train_diffusion_unet_image_franka_kitchen_lowdim/checkpoints/latest.ckpt"  # with images + mass + critic
     dataset_dir = "/home/ros/humble/src/diffusion_policy/data/fake_puree_experiments/diffusion_policy_dataset_exp2_v2/"
 
     payload = torch.load(open(ckpt_path, 'rb'), pickle_module=dill)
@@ -145,12 +146,15 @@ def main():
     workspace: BaseWorkspace
     workspace.load_payload(payload, exclude_keys=None, include_keys=None) # TODO
     policy = workspace.model
+    critic = workspace.critic
     policy = policy.cuda()
     policy = policy.eval()
+    critic = critic.cuda()
+    critic = critic.eval()
 
     # list_episodes = get_dataset(dataset_dir)
-    mass = 3.0
-    index_episode = 40
+    mass = 2.4
+    index_episode = 0
     one_episode = get_one_episode(dataset, mass=mass, index_episode=index_episode)
 
     sequence_observations = one_episode["obs"]
@@ -211,8 +215,9 @@ def main():
                                   lambda x: torch.from_numpy(x).cuda())
             neutral_obs_dict = dict_apply(np_neutral_obs_dict,
                                           lambda x: torch.from_numpy(x).cuda())
-            
-            action_dict = policy.predict_action(obs_dict, neutral_obs_dict)
+
+            action_dict = policy.predict_action_from_several_samples(obs_dict, critic, neutral_obs_dict)
+            # action_dict = policy.predict_action(obs_dict, neutral_obs_dict)
             # action_dict = policy.predict_action(neutral_obs_dict)
             np_action_dict = dict_apply(action_dict,
                                         lambda x: x.detach().to('cpu').numpy())

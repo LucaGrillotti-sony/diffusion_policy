@@ -104,7 +104,7 @@ class EnvControlWrapperJTC:
         # start with the initial position as a goal
         # self.initial_eef = RealFrankaImageDataset.FIXED_INITIAL_EEF
         initial_eef = np.asarray(
-            [0.42996018, 0.05893278, 0.42212647, 0.0673149, 0.96574436, 0.2338243, 0.03675712]
+            [0.40996018, 0.03893278, 0.45212647, 0.0673149, 0.96574436, 0.2338243, 0.03675712]
         )  # TODO: deal with initial eef
         self.initial_eef = self.convert_eef_to_kdl(initial_eef)  # PyKDL coordinate: tr=[x,y,z] and qu = [x,y,z,w]
 
@@ -452,12 +452,14 @@ class DiffusionController(NodeParameterMixin,
                                                    rff_encoder=rff_encoder,
                                                    mass_goal=mass_goal, )
         self.policy = policy
-        self.policy = self.policy.eval()
         self.policy = self.policy.cuda()
+        self.policy = self.policy.eval()
+
         self.policy.reset()
 
-        # self.critic = critic
-        # self.critic.eval().cuda()
+        self.critic = critic
+        self.critic = self.critic.cuda()
+        self.critic = self.critic.eval()
 
         # self.policy.num_inference_steps = 64
 
@@ -588,7 +590,8 @@ class DiffusionController(NodeParameterMixin,
             neutral_obs_dict = dict_apply(filtered_stacked_neutral_obs,
                                           lambda x: torch.from_numpy(x).cuda())
 
-            action_dict = self.policy.predict_action(obs_dict, neutral_obs_dict)  # TODO
+            # action_dict = self.policy.predict_action(obs_dict, neutral_obs_dict)  # TODO
+            action_dict = self.policy.predict_action_from_several_samples(obs_dict, critic_network=self.critic, neutral_obs_dict=neutral_obs_dict)
             # action_dict = self.policy.predict_action(obs_dict)
             np_action_dict = dict_apply(action_dict,
                                         lambda x: x.detach().to('cpu').numpy())
@@ -652,8 +655,8 @@ class DiffusionController(NodeParameterMixin,
 def main(args=None):
     # ckpt_path = "/home/ros/humble/src/diffusion_policy/data/outputs/2024.04.08/14.10.05_train_diffusion_unet_image_franka_kitchen_lowdim/checkpoints/latest.ckpt"  # only EEF
     # ckpt_path = "/home/ros/humble/src/diffusion_policy/data/outputs/2024.04.08/16.24.23_train_diffusion_unet_image_franka_kitchen_lowdim/checkpoints/epoch=0280-mse_error_val=0.000.ckpt"  # with images, n_obs_frames_stack = 4
-    ckpt_path = "/home/ros/humble/src/diffusion_policy/data/outputs/2024.04.09/18.02.53_train_diffusion_unet_image_franka_kitchen_lowdim/checkpoints/epoch=1530-mse_error_val=0.000.ckpt"  # with images + mass, n_obs_frames_stack = 4
-
+    # ckpt_path = "/home/ros/humble/src/diffusion_policy/data/outputs/2024.04.09/18.02.53_train_diffusion_unet_image_franka_kitchen_lowdim/checkpoints/epoch=1530-mse_error_val=0.000.ckpt"  # with images + mass, n_obs_frames_stack = 4
+    ckpt_path = "/home/ros/humble/src/diffusion_policy/data/outputs/2024.04.10/18.53.16_train_diffusion_unet_image_franka_kitchen_lowdim/checkpoints/latest.ckpt"  # with images + mass + critic
 
     # n_obs_steps = 2 # TODO
     n_obs_steps = 4
