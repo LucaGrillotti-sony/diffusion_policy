@@ -260,17 +260,17 @@ def treat_folder(path_load, path_save, index_episode, mass):
     # data_img["azure_07"] = get_list_data_img(cv_bridge, images_azure_07, time_offset=start_time)
     # data_img["azure_08"] = get_list_data_img(cv_bridge, images_azure_08, time_offset=start_time)
     data_img["images_hand_eye_rgb"] = get_list_data_img(cv_bridge, images_hand_eye_rgb, time_offset=start_time)
-    data_img["images_hand_eye_depth"] = get_list_data_img(cv_bridge,
-                                                          images_hand_eye_depth,
-                                                          time_offset=start_time,
-                                                          is_depth=True)
+    # data_img["images_hand_eye_depth"] = get_list_data_img(cv_bridge,
+    #                                                       images_hand_eye_depth,
+    #                                                       time_offset=start_time,
+    #                                                       is_depth=True)
 
     fps_dict = dict()
     # fps_dict["azure_06"] = 30
     # fps_dict["azure_07"] = 30
     # fps_dict["azure_08"] = 30
     fps_dict["images_hand_eye_rgb"] = 15
-    fps_dict["images_hand_eye_depth"] = 15
+    # fps_dict["images_hand_eye_depth"] = 15
 
     max_time = min(_data_list[-1].timestamp for _data_list in data_img.values())
 
@@ -297,8 +297,8 @@ def treat_folder(path_load, path_save, index_episode, mass):
         # else:
         #     is_color = True
 
-
-        make_video(data_img[key], name=str(_path_folder / name_file), fps=fps_dict[key], is_color=True)
+        # TODO: put back
+        # make_video(data_img[key], name=str(_path_folder / name_file), fps=fps_dict[key], is_color=True)
 
     print("Get End-effector")
     # target_end_effector_poses = parser.get_messages("/cartesian_control")

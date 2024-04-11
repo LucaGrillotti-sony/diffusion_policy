@@ -228,22 +228,27 @@ def create_zarr_action_dataset(dataset_path: str):
         if not _file_path_eef.exists():
             print(f"{_file_path_eef} does not exist, skipping...")
             continue
-        # if not _file_path_annotations.exists():
-        #     print(f"{_file_path_annotations} does not exist, skipping...")
-        #     continue
+        if not _file_path_annotations.exists():
+            print(f"{_file_path_annotations} does not exist, skipping...")
+            continue
         if not _file_path_mass.exists():
             print(f"{_file_path_mass} does not exist, skipping...")
             continue
         array_actions = np.load(_file_path)
         array_eef = np.load(_file_path_eef)
-        # array_annotations = np.load(_file_path_annotations)
+        array_annotations = np.load(_file_path_annotations)
         mass_scooped = np.loadtxt(_file_path_mass).item()
         array_masses = np.full((array_eef.shape[0],), fill_value=mass_scooped)
+
+        if len(array_annotations) > len(array_masses):
+            array_annotations = array_annotations[:len(array_masses)]
+
+        print(array_actions.shape, array_eef.shape, array_annotations.shape, array_masses.shape)
 
         data_dict = {
             'action': array_actions,
             'eef': array_eef,
-            # 'label': array_annotations,
+            'label': array_annotations,
             'mass': array_masses,
         }
 
