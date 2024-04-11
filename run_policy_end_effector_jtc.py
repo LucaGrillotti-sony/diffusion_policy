@@ -104,7 +104,7 @@ class EnvControlWrapperJTC:
         # start with the initial position as a goal
         # self.initial_eef = RealFrankaImageDataset.FIXED_INITIAL_EEF
         initial_eef = np.asarray(
-            [0.40996018, 0.03893278, 0.45212647, 0.0673149, 0.96574436, 0.2338243, 0.03675712]
+            [0.43996018, 0.06893278, 0.40212647, 0.0673149, 0.96574436, 0.2338243, 0.03675712]
         )  # TODO: deal with initial eef
         self.initial_eef = self.convert_eef_to_kdl(initial_eef)  # PyKDL coordinate: tr=[x,y,z] and qu = [x,y,z,w]
 
@@ -285,6 +285,13 @@ class EnvControlWrapperJTC:
     def time_multiply(cls, list_jnts_time, time_multiplier):
         return [
             (_time * time_multiplier, joint)
+            for (_time, joint) in list_jnts_time
+        ]
+
+    @classmethod
+    def time_offset(cls, list_jnts_time, time_offset):
+        return [
+            (_time + time_offset, joint)
             for (_time, joint) in list_jnts_time
         ]
 
@@ -607,7 +614,8 @@ class DiffusionController(NodeParameterMixin,
         print("absolute_actions_eef", absolute_actions_eef)
         action_joints = self.env.convert_eef_to_joints(absolute_actions_eef, joints_init=jnts_obs, convert_eef_to_kdl_convention=True)
         times_joints_seq = self.env.add_times_to_joints_seq(action_joints, frequency=5)  # TODO: frequency
-        times_joints_seq = self.env.time_multiply(times_joints_seq, time_multiplier=1.)  # TODO: parametrize
+        times_joints_seq = self.env.time_multiply(times_joints_seq, time_multiplier=0.5)  # TODO: parametrize
+        times_joints_seq = self.env.time_offset(times_joints_seq, time_offset=0.5)  # TODO: parametrize
         times_joints_seq = self.env.interpolate_joints_seq(times_joints_seq, interpolate_frequency=200, initial_jnt=jnts_obs)  # TODO: parametrize
         duration = times_joints_seq[-1][0]
         self.env.step(times_joints_seq)
@@ -684,7 +692,7 @@ def main(args=None):
 
     policy = workspace.model
 
-    MASS_GOAL = 2.5
+    MASS_GOAL = 3
 
     args = None
     rclpy.init(args=args)
