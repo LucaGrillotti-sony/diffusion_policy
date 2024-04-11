@@ -1,8 +1,8 @@
 hydra:
   run:
-    dir: 'data/outputs/${now:%Y.%m.%d}/${now:%H.%M.%S}_${name}_${task_name}'
+    dir: 'data/outputs/classifier/${now:%Y.%m.%d}/${now:%H.%M.%S}_${name}_${task_name}'
 
-_target_: diffusion_policy.workspace.train_diffusion_unet_hybrid_workspace.TrainDiffusionUnetHybridWorkspace
+_target_: diffusion_policy.workspace.train_diffusion_unet_hybrid_workspace.TrainClassifierWorkspace
 action_dim: 7
 checkpoint:
   save_last_ckpt: true
@@ -214,8 +214,8 @@ task:
     _target_: diffusion_policy.env_runner.real_robot_runner.DummyImageRobot
 task_name: kitchen_lowdim
 training:
-  path_classifier_state_dict: data/outputs/classifier/2024.04.11/18.57.04_train_diffusion_unet_image_franka_kitchen_lowdim/classifier.pt
-  checkpoint_every: 5  # Needs to be a multiple of sample_every
+  path_classifier_state_dict: null  # TODO
+  checkpoint_every: 1  # Needs to be a multiple of sample_every
   debug: false
   device: cuda:0
   gradient_accumulate_every: 1
@@ -223,14 +223,14 @@ training:
   lr_warmup_steps: 500
   max_train_steps: null
   max_val_steps: null
-  num_epochs: 8000
+  num_epochs: 10
   resume: true
   rollout_every: 50
-  sample_every: 5
+  sample_every: 1
   seed: 42
   tqdm_interval_sec: 1.0
   use_ema: true
-  val_every: 5
+  val_every: 1
 val_dataloader:
   batch_size: 16
   num_workers: 8
