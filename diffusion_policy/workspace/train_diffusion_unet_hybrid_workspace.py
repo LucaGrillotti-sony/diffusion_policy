@@ -1,5 +1,7 @@
 import math
+import shutil
 
+from diffusion_policy.model.common.normalizer import SingleFieldLinearNormalizer
 from diffusion_policy.model.diffusion.conditional_unet1d_critic import DoubleCritic
 from diffusion_policy.networks.classifier import ClassifierStageScooping
 from diffusion_policy.policy.diffusion_guided_ddim import DDIMGuidedScheduler
@@ -28,7 +30,6 @@ import torch.nn.functional as F
 from diffusion_policy.workspace.base_workspace import BaseWorkspace
 from diffusion_policy.policy.diffusion_unet_hybrid_image_policy import DiffusionUnetHybridImagePolicy
 from diffusion_policy.dataset.base_dataset import BaseImageDataset
-from diffusion_policy.env_runner.base_image_runner import BaseImageRunner
 from diffusion_policy.common.checkpoint_util import TopKCheckpointManager
 from diffusion_policy.common.json_logger import JsonLogger
 from diffusion_policy.common.pytorch_util import dict_apply, optimizer_to, custom_tree_map
@@ -109,7 +110,7 @@ class TrainClassifierWorkspace(BaseWorkspace):
 
         # device transfer
         device = torch.device(cfg.training.device)
-        optimizer_to(classifier_optimizer, device)
+        classifier_optimizer = optimizer_to(classifier_optimizer, device)
 
         # save batch for sampling
         train_sampling_batch = None
@@ -221,7 +222,7 @@ class TrainClassifierWorkspace(BaseWorkspace):
 
 
 class TrainDiffusionUnetHybridWorkspace(BaseWorkspace):
-    include_keys = ['global_step', 'epoch']
+    include_keys = ['global_step', 'epoch', 'lagrange_parameter']
 
     def __init__(self, cfg: OmegaConf, output_dir=None):
         super().__init__(cfg, output_dir=output_dir)
@@ -267,7 +268,17 @@ class TrainDiffusionUnetHybridWorkspace(BaseWorkspace):
         # the classifier is fixed and loaded - no finetuning.
         self.classifier = ClassifierStageScooping(width=240, height=240, number_of_classes=NUM_CLASSES)  # TODO: parametrize
         self.classifier.load_state_dict(torch.load(cfg.training.path_classifier_state_dict))
-        self.classifier = self.classifier.to(cfg.training.device)
+
+    def add_scooping_accomplished_to_batch(self, obs, normalizer):
+        nobs_camera = normalizer["camera_1"].normalize(obs["camera_1"])  # TODO: make something more modular than hardcoding camera_1
+        nobs_camera_all = nobs_camera.reshape(-1, *nobs_camera.shape[2:])
+        scooping_accomplished_one_hot = self.classifier.prediction_one_hot(nobs_camera_all)
+        scooping_accomplished_one_hot = scooping_accomplished_one_hot.reshape(
+            *nobs_camera.shape[:2], -1)
+
+        obs["scooping_accomplished"] = scooping_accomplished_one_hot
+
+        return obs
 
     def run(self):
         cfg = copy.deepcopy(self.cfg)
@@ -279,12 +290,25 @@ class TrainDiffusionUnetHybridWorkspace(BaseWorkspace):
                 print(f"Resuming from checkpoint {lastest_ckpt_path}")
                 self.load_checkpoint(path=lastest_ckpt_path)
 
+                print(f"{self.lagrange_parameter=}")
+                self.optimizer = hydra.utils.instantiate(
+                    cfg.optimizer, params=self.model.parameters())
+
+                self.lagrange_optimizer = hydra.utils.instantiate(
+                    cfg.lagrange_optimizer, params=[self.lagrange_parameter])
+
+                self.critic_optimizer = hydra.utils.instantiate(
+                    cfg.critic_optimizer, params=self.critic.parameters()
+                )
+
+
         # configure dataset
         dataset: BaseImageDataset
         dataset = hydra.utils.instantiate(cfg.task.dataset)
         assert isinstance(dataset, BaseImageDataset)
         train_dataloader = DataLoader(dataset, **cfg.dataloader)
         normalizer = dataset.get_normalizer()
+        normalizer["scooping_accomplished"] = SingleFieldLinearNormalizer.create_identity()
 
         # configure validation dataset
         val_dataset = dataset.get_validation_dataset()
@@ -306,9 +330,10 @@ class TrainDiffusionUnetHybridWorkspace(BaseWorkspace):
                                // cfg.training.gradient_accumulate_every,
             # pytorch assumes stepping LRScheduler every epoch
             # however huggingface diffusers steps it every batch
-            last_epoch=self.global_step - 1
+            last_epoch=-1,
         )
-
+        for _ in range(self.global_step):
+            lr_scheduler.step()
         # configure ema
         ema: EMAModel = None
         if cfg.training.use_ema:
@@ -318,13 +343,6 @@ class TrainDiffusionUnetHybridWorkspace(BaseWorkspace):
         critic_target = hydra.utils.instantiate(
             cfg.critic_target,
             model=self.critic_target)
-
-        # configure env
-        env_runner: BaseImageRunner
-        env_runner = hydra.utils.instantiate(
-            cfg.task.env_runner,
-            output_dir=self.output_dir)
-        assert isinstance(env_runner, BaseImageRunner)
 
         dict_logging = {**cfg.logging}
         dict_logging["name"] = str(self.output_dir)
@@ -352,6 +370,7 @@ class TrainDiffusionUnetHybridWorkspace(BaseWorkspace):
         self.model.to(device)
         self.lagrange_parameter.to(device)
         self.critic.to(device)
+        self.classifier.to(device)
 
         if self.ema_model is not None:
             self.ema_model.to(device)
@@ -373,6 +392,7 @@ class TrainDiffusionUnetHybridWorkspace(BaseWorkspace):
             cfg.training.val_every = 1
             cfg.training.sample_every = 1
 
+
         # training loop
         log_path = os.path.join(self.output_dir, 'logs.json.txt')
         with JsonLogger(log_path) as json_logger:
@@ -384,6 +404,8 @@ class TrainDiffusionUnetHybridWorkspace(BaseWorkspace):
                                leave=False, mininterval=cfg.training.tqdm_interval_sec) as tepoch:
                     for batch_idx, batch in enumerate(tepoch):
                         # device transfer
+                        batch["obs"] = self.add_scooping_accomplished_to_batch(obs=batch["obs"], normalizer=normalizer)
+                        batch["next_obs"] = self.add_scooping_accomplished_to_batch(obs=batch["next_obs"], normalizer=normalizer)
                         batch = dict_apply(batch, lambda x: x.to(device, non_blocking=True))
                         if train_sampling_batch is None:
                             train_sampling_batch = batch
@@ -407,20 +429,11 @@ class TrainDiffusionUnetHybridWorkspace(BaseWorkspace):
 
                         mse_predictions_train = F.mse_loss(_other_data_model["sample_actions"]['action_pred'],
                                                            batch['action']).detach().item()
+                        _other_data_model["sample_actions"] = dict_apply(_other_data_model["sample_actions"], lambda x: x.to(device, non_blocking=True))
                         _metrics_lagrange = {"mse_training": mse_predictions_train}
                         raw_loss_lagrange, _metrics_lagrange = self.compute_loss_lagrange(
                             sample_actions=_other_data_model["sample_actions"], batch=batch)
                         self.update_lagrange(raw_loss_lagrange)
-
-                        # # Update classifier
-                        labels = batch['label']
-                        shape_labels = labels.shape
-                        nobs_features = _other_data_model['nobs_features'].clone().detach()
-                        nobs_features = nobs_features.view(*shape_labels, -1)
-                        # loss_classifier = self.classifier.compute_loss(nobs_features, labels)
-                        # loss_classifier.backward()
-                        # self.classifier_optimizer.step()
-                        # self.classifier_optimizer.zero_grad()
 
                         # # Update critic
                         # # print(batch['action'].shape, nobs_features_flat.shape)
@@ -484,11 +497,6 @@ class TrainDiffusionUnetHybridWorkspace(BaseWorkspace):
                     policy = self.ema_model
                 policy.eval()
 
-                # run rollout
-                if (self.epoch % cfg.training.rollout_every) == 0:
-                    runner_log = env_runner.run(policy)
-                    # log all
-                    step_log.update(runner_log)
 
                 # run validation
                 if (self.epoch % cfg.training.val_every) == 0:
@@ -498,17 +506,26 @@ class TrainDiffusionUnetHybridWorkspace(BaseWorkspace):
                         with tqdm.tqdm(val_dataloader, desc=f"Validation epoch {self.epoch}",
                                        leave=False, mininterval=cfg.training.tqdm_interval_sec) as tepoch:
                             for batch_idx, batch in enumerate(tepoch):
+                                batch["obs"] = self.add_scooping_accomplished_to_batch(obs=batch["obs"],
+                                                                                       normalizer=normalizer)
+                                batch["next_obs"] = self.add_scooping_accomplished_to_batch(obs=batch["next_obs"],
+                                                                                            normalizer=normalizer)
                                 batch = dict_apply(batch, lambda x: x.to(device, non_blocking=True))
+
+
+
                                 loss_actor, _metrics, _other_data_model = self.model.compute_loss(batch,
                                                                                                   sigmoid_lagrange=self.get_sigmoid_lagrange(
                                                                                                       detach=True),
                                                                                                   critic_network=self.critic)
                                 labels = batch['label']
-                                shape_labels = labels.shape
-                                nobs_features_flat = _other_data_model['nobs_features'].detach()
-                                nobs_features_flat = nobs_features_flat.view(*shape_labels, -1)
-                                val_loss_classifier = self.classifier.compute_loss(nobs_features_flat, labels)
-                                accuracy_classifier = self.classifier.accuracy(nobs_features_flat, labels)
+
+                                obs = batch["obs"]["camera_1"]
+                                nobs = normalizer["camera_1"].normalize(obs).to(device)
+                                nobs = nobs.reshape(-1, *nobs.shape[-3:])  # reshaping to (B*T) x C x W x H
+
+                                val_loss_classifier = self.classifier.compute_loss(nobs, labels)
+                                accuracy_classifier = self.classifier.accuracy(nobs, labels)
 
                                 val_losses.append(loss_actor)
                                 list_metrics.append({"val_loss_classifier": val_loss_classifier.item(),
@@ -538,7 +555,12 @@ class TrainDiffusionUnetHybridWorkspace(BaseWorkspace):
                         with tqdm.tqdm(val_dataloader, desc=f"Predicting actions epoch {self.epoch}",
                                        leave=False, mininterval=cfg.training.tqdm_interval_sec) as tepoch:
                             for batch_idx, batch in enumerate(tepoch):
+                                batch["obs"] = self.add_scooping_accomplished_to_batch(obs=batch["obs"],
+                                                                                       normalizer=normalizer)
+                                batch["next_obs"] = self.add_scooping_accomplished_to_batch(obs=batch["next_obs"],
+                                                                                            normalizer=normalizer)
                                 batch = dict_apply(batch, lambda x: x.to(device, non_blocking=True))
+
                                 obs_dict = batch['obs']
                                 gt_action = batch['action']
                                 result = self.model.predict_action(obs_dict, )
@@ -585,9 +607,10 @@ class TrainDiffusionUnetHybridWorkspace(BaseWorkspace):
 
                 # checkpoint
                 if (self.epoch % cfg.training.checkpoint_every) == 0:
+                    print("Saving Checkpoint...")
                     # checkpointing
                     if cfg.checkpoint.save_last_ckpt:
-                        self.save_checkpoint()
+                        self.save_checkpoint(use_thread=False)
                     if cfg.checkpoint.save_last_snapshot:
                         self.save_snapshot()
 
@@ -600,10 +623,13 @@ class TrainDiffusionUnetHybridWorkspace(BaseWorkspace):
                     # We can't copy the last checkpoint here
                     # since save_checkpoint uses threads.
                     # therefore at this point the file might have been empty!
+
+                    path_latest = pathlib.Path(self.output_dir).joinpath('checkpoints', "latest.ckpt")
                     topk_ckpt_path = topk_manager.get_ckpt_path(metric_dict)
 
                     if topk_ckpt_path is not None:
-                        self.save_checkpoint(path=topk_ckpt_path)
+                        shutil.copyfile(path_latest, topk_ckpt_path)
+                        # self.save_checkpoint(path=topk_ckpt_path)
                 # ========= eval end for this epoch ==========
                 policy.train()
 

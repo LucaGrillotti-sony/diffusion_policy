@@ -87,9 +87,11 @@ class BaseWorkspace:
 
         for key, value in payload['state_dicts'].items():
             if key not in exclude_keys:
+                print("key loaded:", key)
                 self.__dict__[key].load_state_dict(value, **kwargs)
         for key in include_keys:
             if key in payload['pickles']:
+                print("key loaded:", key)
                 self.__dict__[key] = dill.loads(payload['pickles'][key])
     
     def load_checkpoint(self, path=None, tag='latest',
