@@ -21,21 +21,19 @@ import torch
 import wandb
 from gym import spaces
 from hydra.core.hydra_config import HydraConfig
-
 from analysis.predictions.robot_dataset import get_one_episode
 from diffusion_policy.common.pytorch_util import dict_apply
 from diffusion_policy.dataset.real_franka_image_dataset import RandomFourierFeatures, RealFrankaImageDataset
 from diffusion_policy.env_runner.real_robot_runner import RealRobot
 from diffusion_policy.policy.diffusion_guided_ddim import DDIMGuidedScheduler
-from diffusion_policy.workspace.train_diffusion_transformer_lowdim_workspace import \
-    TrainDiffusionTransformerLowdimWorkspace
+from diffusion_policy.workspace.train_diffusion_unet_hybrid_workspace import TrainDiffusionUnetHybridWorkspace
 from diffusion_policy.workspace.train_diffusion_unet_lowdim_workspace import TrainDiffusionUnetLowdimWorkspace
 from read_sensors_utils.format_data_replay_buffer import end_effector_calculator, convert_image, get_robot_description
 from read_sensors_utils.quaternion_utils import quat_library_from_ros
 
 # use line-buffering for both stdout and stderr
-sys.stdout = open(sys.stdout.fileno(), mode='w', buffering=1)
-sys.stderr = open(sys.stderr.fileno(), mode='w', buffering=1)
+# sys.stdout = open(sys.stdout.fileno(), mode='w', buffering=1)
+# sys.stderr = open(sys.stderr.fileno(), mode='w', buffering=1)
 
 import hydra
 from omegaconf import OmegaConf
@@ -429,7 +427,7 @@ class DiffusionController(NodeParameterMixin,
     )
 
     def __init__(self, policy, critic, n_obs_steps, n_action_steps, path_bag_robot_description, rff_encoder, mass_goal,
-                 dataset,
+                 dataset, add_scooping_accomplished_fn,
                  *args, node_name='robot_calibrator', **kwargs):
         super().__init__(*args, node_name=node_name, node_parameters=self.NODE_PARAMETERS, **kwargs)
 
@@ -491,6 +489,8 @@ class DiffusionController(NodeParameterMixin,
         self._time_start_waiting = None
         self._waiting = False
         self._duration_wait = None
+
+        self.add_scooping_accomplished_fn = add_scooping_accomplished_fn
 
 
     def policy_cb(self):
@@ -597,6 +597,18 @@ class DiffusionController(NodeParameterMixin,
             neutral_obs_dict = dict_apply(filtered_stacked_neutral_obs,
                                           lambda x: torch.from_numpy(x).cuda())
 
+            obs_dict = self.add_scooping_accomplished_fn(obs_dict)
+            neutral_obs_dict = self.add_scooping_accomplished_fn(neutral_obs_dict)
+
+            obs_dict["scooping_accomplished"] = torch.zeros_like(obs_dict["scooping_accomplished"])
+            neutral_obs_dict["scooping_accomplished"] = torch.zeros_like(neutral_obs_dict["scooping_accomplished"])
+
+            obs_dict["scooping_accomplished"][..., 1] = 1.
+            neutral_obs_dict["scooping_accomplished"][..., 1] = 1.
+
+            print("scooping achieved", obs_dict["scooping_accomplished"])
+
+
             # action_dict = self.policy.predict_action(obs_dict, neutral_obs_dict)  # TODO
             action_dict = self.policy.predict_action_from_several_samples(obs_dict, critic_network=self.critic, neutral_obs_dict=neutral_obs_dict)
             # action_dict = self.policy.predict_action(obs_dict)
@@ -664,7 +676,9 @@ def main(args=None):
     # ckpt_path = "/home/ros/humble/src/diffusion_policy/data/outputs/2024.04.08/14.10.05_train_diffusion_unet_image_franka_kitchen_lowdim/checkpoints/latest.ckpt"  # only EEF
     # ckpt_path = "/home/ros/humble/src/diffusion_policy/data/outputs/2024.04.08/16.24.23_train_diffusion_unet_image_franka_kitchen_lowdim/checkpoints/epoch=0280-mse_error_val=0.000.ckpt"  # with images, n_obs_frames_stack = 4
     # ckpt_path = "/home/ros/humble/src/diffusion_policy/data/outputs/2024.04.09/18.02.53_train_diffusion_unet_image_franka_kitchen_lowdim/checkpoints/epoch=1530-mse_error_val=0.000.ckpt"  # with images + mass, n_obs_frames_stack = 4
-    ckpt_path = "/home/ros/humble/src/diffusion_policy/data/outputs/2024.04.10/18.53.16_train_diffusion_unet_image_franka_kitchen_lowdim/checkpoints/latest.ckpt"  # with images + mass + critic
+    # ckpt_path = "/home/ros/humble/src/diffusion_policy/data/outputs/2024.04.10/18.53.16_train_diffusion_unet_image_franka_kitchen_lowdim/checkpoints/latest.ckpt"  # with images + mass + critic
+    ckpt_path = "/home/ros/humble/src/diffusion_policy/data/outputs/2024.04.12/18.08.50_train_diffusion_unet_image_franka_kitchen_lowdim/checkpoints/epoch=0765-mse_error_val=0.000.ckpt"  # with images + mass + critic + classifier input.
+
 
     # n_obs_steps = 2 # TODO
     n_obs_steps = 4
@@ -677,7 +691,7 @@ def main(args=None):
     cfg.task.dataset.dataset_path = dataset_dir
     cls = hydra.utils.get_class(cfg._target_)
     workspace = cls(cfg)
-    workspace: BaseWorkspace
+    workspace: TrainDiffusionUnetHybridWorkspace
     workspace.load_payload(payload, exclude_keys=None, include_keys=None)
 
     # configure logging
@@ -694,6 +708,11 @@ def main(args=None):
 
     MASS_GOAL = 3
 
+    workspace.classifier = workspace.classifier.cuda()
+    workspace.classifier = workspace.classifier.eval()
+
+    add_scooping_accomplished_fn = lambda x: workspace.add_scooping_accomplished_to_batch_from_classifier(x, normalizer=policy.normalizer, no_batch=False)
+
     args = None
     rclpy.init(args=args)
     try:
@@ -706,6 +725,7 @@ def main(args=None):
                                 rff_encoder=dataset.rff_encoder,
                                 mass_goal=MASS_GOAL,
                                 dataset=dataset,
+                                add_scooping_accomplished_fn=add_scooping_accomplished_fn
                                 ),
         ]
 
@@ -724,4 +744,5 @@ def main(args=None):
 
 
 if __name__ == "__main__":
+    print(1)
     main()
