@@ -348,11 +348,6 @@ class RealFrankaImageDataset(BaseImageDataset):
             obs_dict[key] = data[key][T_slice].astype(np.float32)
             next_obs_dict[key] = data[key][next_T_slice].astype(np.float32)
 
-            # Compute relative action (relative EEF wrt initial position) TODO
-            # if key == 'eef':
-            #     obs_dict[key] = self.compute_action_relative_to_initial_eef(obs_dict[key], self.FIXED_INITIAL_EEF)
-            #     next_obs_dict[key] = self.compute_action_relative_to_initial_eef(next_obs_dict[key], self.FIXED_INITIAL_EEF)
-            # save ram
             del data[key]
 
         action = data['action'].astype(np.float32)
@@ -360,6 +355,7 @@ class RealFrankaImageDataset(BaseImageDataset):
         labels = labels[T_slice]
 
         if 'mass' in obs_dict:
+            true_mass = obs_dict['mass']
             obs_dict['mass'] = self.encode_mass(obs_dict['mass'])
             next_obs_dict['mass'] = self.encode_mass(next_obs_dict['mass'])
 
@@ -379,6 +375,8 @@ class RealFrankaImageDataset(BaseImageDataset):
             'next_obs': dict_apply(next_obs_dict, torch.from_numpy),
             'label': torch.from_numpy(labels),
         }
+        if 'mass' in obs_dict:
+            torch_data.update({'true_mass': torch.from_numpy(true_mass)})
         return torch_data
 
     @staticmethod

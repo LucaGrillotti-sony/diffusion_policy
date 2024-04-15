@@ -218,6 +218,8 @@ task:
     mass_encoding_size: 256
     period_adjustment_rff: 0.15
     proba_diffusion_remove_mass_label: 0.2
+  target_mass: 2.5
+  bounds_mass: [0, 5]
   env_runner:
     _target_: diffusion_policy.env_runner.real_robot_runner.DummyImageRobot
 task_name: kitchen_lowdim
