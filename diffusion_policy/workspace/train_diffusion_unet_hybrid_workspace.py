@@ -269,7 +269,9 @@ class TrainDiffusionUnetHybridWorkspace(BaseWorkspace):
         self.classifier = ClassifierStageScooping(width=240, height=240, number_of_classes=NUM_CLASSES)  # TODO: parametrize
         self.classifier.load_state_dict(torch.load(cfg.training.path_classifier_state_dict))
 
-    def add_scooping_accomplished_to_batch(self, obs, normalizer):
+    def add_scooping_accomplished_to_batch_from_classifier(self, obs, normalizer, no_batch=False):
+        if no_batch:
+            obs = dict_apply(obs, lambda x: torch.unsqueeze(x, dim=0))
         nobs_camera = normalizer["camera_1"].normalize(obs["camera_1"])  # TODO: make something more modular than hardcoding camera_1
         nobs_camera_all = nobs_camera.reshape(-1, *nobs_camera.shape[2:])
         scooping_accomplished_one_hot = self.classifier.prediction_one_hot(nobs_camera_all)
@@ -278,6 +280,8 @@ class TrainDiffusionUnetHybridWorkspace(BaseWorkspace):
 
         obs["scooping_accomplished"] = scooping_accomplished_one_hot
 
+        if no_batch:
+            obs = dict_apply(obs, lambda x: x[0])
         return obs
 
     def run(self):
@@ -404,8 +408,6 @@ class TrainDiffusionUnetHybridWorkspace(BaseWorkspace):
                                leave=False, mininterval=cfg.training.tqdm_interval_sec) as tepoch:
                     for batch_idx, batch in enumerate(tepoch):
                         # device transfer
-                        batch["obs"] = self.add_scooping_accomplished_to_batch(obs=batch["obs"], normalizer=normalizer)
-                        batch["next_obs"] = self.add_scooping_accomplished_to_batch(obs=batch["next_obs"], normalizer=normalizer)
                         batch = dict_apply(batch, lambda x: x.to(device, non_blocking=True))
                         if train_sampling_batch is None:
                             train_sampling_batch = batch
@@ -506,10 +508,6 @@ class TrainDiffusionUnetHybridWorkspace(BaseWorkspace):
                         with tqdm.tqdm(val_dataloader, desc=f"Validation epoch {self.epoch}",
                                        leave=False, mininterval=cfg.training.tqdm_interval_sec) as tepoch:
                             for batch_idx, batch in enumerate(tepoch):
-                                batch["obs"] = self.add_scooping_accomplished_to_batch(obs=batch["obs"],
-                                                                                       normalizer=normalizer)
-                                batch["next_obs"] = self.add_scooping_accomplished_to_batch(obs=batch["next_obs"],
-                                                                                            normalizer=normalizer)
                                 batch = dict_apply(batch, lambda x: x.to(device, non_blocking=True))
 
 
@@ -555,10 +553,6 @@ class TrainDiffusionUnetHybridWorkspace(BaseWorkspace):
                         with tqdm.tqdm(val_dataloader, desc=f"Predicting actions epoch {self.epoch}",
                                        leave=False, mininterval=cfg.training.tqdm_interval_sec) as tepoch:
                             for batch_idx, batch in enumerate(tepoch):
-                                batch["obs"] = self.add_scooping_accomplished_to_batch(obs=batch["obs"],
-                                                                                       normalizer=normalizer)
-                                batch["next_obs"] = self.add_scooping_accomplished_to_batch(obs=batch["next_obs"],
-                                                                                            normalizer=normalizer)
                                 batch = dict_apply(batch, lambda x: x.to(device, non_blocking=True))
 
                                 obs_dict = batch['obs']
