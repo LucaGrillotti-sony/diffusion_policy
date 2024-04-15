@@ -167,6 +167,7 @@ task:
   abs_action: true
   dataset:
     _target_: diffusion_policy.dataset.real_franka_image_dataset.RealFrankaImageDataset
+    augment_data: true
 #    abs_action: true
     shape_meta:
       action:
@@ -194,8 +195,8 @@ task:
         type: low_dim
 #    dataset_path: /home/ros/humble/src/diffusion_policy/data/smaller_dataset
 #    dataset_path: /home/sony-unicorn/ros/humble/src/diffusion_policy/data/fake_puree_experiments/diffusion_policy_dataset/
-    dataset_path: /home/lucagrillotti/ros/humble/src/diffusion_policy/data/fake_puree_experiments/diffusion_policy_dataset_exp2_v2/
-#    dataset_path: /home/ros/humble/src/diffusion_policy/data/fake_puree_experiments/diffusion_policy_dataset_exp2_v2/  # TODO
+#    dataset_path: /home/lucagrillotti/ros/humble/src/diffusion_policy/data/fake_puree_experiments/diffusion_policy_dataset_exp2_v2/
+    dataset_path: /home/ros/humble/src/diffusion_policy/data/fake_puree_experiments/diffusion_policy_dataset_exp2_v2/  # TODO
     dt: 0.1
     horizon: 16
     n_obs_steps: 4
@@ -223,7 +224,7 @@ training:
   lr_warmup_steps: 500
   max_train_steps: null
   max_val_steps: null
-  num_epochs: 10
+  num_epochs: 25
   resume: true
   rollout_every: 50
   sample_every: 1
