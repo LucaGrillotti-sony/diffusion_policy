@@ -263,7 +263,7 @@ def create_zarr_action_dataset(dataset_path: str):
 
 def test_real_data_conversion():
     # dataset_path = pathlib.Path("/home/lucagrillotti/ros/humble/src/diffusion_policy/data/test_dataset/")
-    dataset_path = pathlib.Path("/home/ros/humble/src/diffusion_policy/data/fake_puree_experiments/diffusion_policy_dataset_exp2_v2/")
+    dataset_path = pathlib.Path("/home/ros/humble/src/diffusion_policy/data/fake_puree_experiments/diffusion_policy_dataset_exp2_v2_higher/")
     output_path = dataset_path / "replay_buffer_final.zarr.zip"
     assert output_path.suffix == ".zip"
     cv2.setNumThreads(1)

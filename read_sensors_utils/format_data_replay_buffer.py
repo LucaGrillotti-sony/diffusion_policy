@@ -95,6 +95,7 @@ def convert_image(cv_bridge: CvBridge, msg_ros, is_depth=False, side_size=400):
         img_np = cv_bridge.imgmsg_to_cv2(msg_ros)
     else:
         img_np = cv_bridge.compressed_imgmsg_to_cv2(msg_ros, "passthrough")
+        # print(img_np.shape)
     # print(msg_ros.header) 
     # img_np = cv_bridge.imgmsg_to_cv2(msg_ros, desired_encoding='32FC1')
 
@@ -124,9 +125,10 @@ def convert_image(cv_bridge: CvBridge, msg_ros, is_depth=False, side_size=400):
         img_np = np.concatenate([img_np, img_np, img_np], axis=-1)
 
     # print("IMG NP Shape", img_np.shape)
-    middle_width = img_np.shape[0] // 2
-    middle_height = img_np.shape[1] // 2
-    img_np = img_np[middle_width - (side_size // 2):middle_width + (side_size // 2), middle_height - (side_size // 2):middle_height + (side_size // 2)]
+    middle_height = 200
+    # print(middle_height)
+    middle_width = img_np.shape[1] // 2
+    img_np = img_np[middle_height - (side_size // 2):middle_height + (side_size // 2), middle_width - (side_size // 2):middle_width + (side_size // 2)]
     # img_np = img_np[250:1050, 0:800]
     # print("IMG, depth", np.max(img_np), np.min(img_np), is_depth, img_np.dtype)
     img_np = cv2.resize(img_np, (240, 240), interpolation=cv2.INTER_AREA)
@@ -260,17 +262,17 @@ def treat_folder(path_load, path_save, index_episode, mass):
     # data_img["azure_07"] = get_list_data_img(cv_bridge, images_azure_07, time_offset=start_time)
     # data_img["azure_08"] = get_list_data_img(cv_bridge, images_azure_08, time_offset=start_time)
     data_img["images_hand_eye_rgb"] = get_list_data_img(cv_bridge, images_hand_eye_rgb, time_offset=start_time)
-    # data_img["images_hand_eye_depth"] = get_list_data_img(cv_bridge,
-    #                                                       images_hand_eye_depth,
-    #                                                       time_offset=start_time,
-    #                                                       is_depth=True)
+    data_img["images_hand_eye_depth"] = get_list_data_img(cv_bridge,
+                                                          images_hand_eye_depth,
+                                                          time_offset=start_time,
+                                                          is_depth=True)
 
     fps_dict = dict()
     # fps_dict["azure_06"] = 30
     # fps_dict["azure_07"] = 30
     # fps_dict["azure_08"] = 30
     fps_dict["images_hand_eye_rgb"] = 15
-    # fps_dict["images_hand_eye_depth"] = 15
+    fps_dict["images_hand_eye_depth"] = 15
 
     max_time = min(_data_list[-1].timestamp for _data_list in data_img.values())
 
@@ -298,7 +300,7 @@ def treat_folder(path_load, path_save, index_episode, mass):
         #     is_color = True
 
         # TODO: put back
-        # make_video(data_img[key], name=str(_path_folder / name_file), fps=fps_dict[key], is_color=True)
+        make_video(data_img[key], name=str(_path_folder / name_file), fps=fps_dict[key], is_color=True)
 
     print("Get End-effector")
     # target_end_effector_poses = parser.get_messages("/cartesian_control")
@@ -381,7 +383,7 @@ def read_masses_csv(path_csv):
 
 def main():
     PATH_TO_LOAD = pathlib.Path("/home/ros/humble/src/diffusion_policy/data/experiment_2/bags_kinesthetic_v2/").absolute()
-    PATH_SAVE = pathlib.Path("/home/ros/humble/src/diffusion_policy/data/fake_puree_experiments/diffusion_policy_dataset_exp2_v2/").absolute()
+    PATH_SAVE = pathlib.Path("/home/ros/humble/src/diffusion_policy/data/fake_puree_experiments/diffusion_policy_dataset_exp2_v2_higher/").absolute()
     
     PATH_MASSES_CSV = PATH_TO_LOAD / "masses_per_demo.csv"
     masses_per_demo = read_masses_csv(PATH_MASSES_CSV)

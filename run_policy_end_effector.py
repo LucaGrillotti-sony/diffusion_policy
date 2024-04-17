@@ -582,7 +582,7 @@ def main(args=None):
 
     payload = torch.load(open(ckpt_path, 'rb'), pickle_module=dill)
     cfg = payload['cfg']
-    dataset_dir = "/home/ros/humble/src/diffusion_policy/data/fake_puree_experiments/diffusion_policy_dataset_exp2_v2/"
+    dataset_dir = "/home/ros/humble/src/diffusion_policy/data/fake_puree_experiments/diffusion_policy_dataset_exp2_v2_higher/"
     cfg.task.dataset.dataset_path = dataset_dir
     cls = hydra.utils.get_class(cfg._target_)
     workspace = cls(cfg)

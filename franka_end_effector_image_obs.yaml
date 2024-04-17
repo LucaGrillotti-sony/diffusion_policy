@@ -201,7 +201,7 @@ task:
         shape:
           - 1
         type: low_dim
-    dataset_path: data/fake_puree_experiments/diffusion_policy_dataset_exp2_v2/
+    dataset_path: data/fake_puree_experiments/diffusion_policy_dataset_exp2_v2_higher/
     dt: 0.1
     horizon: 16
     n_obs_steps: 4
