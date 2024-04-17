@@ -79,7 +79,7 @@ policy:
   _target_: diffusion_policy.policy.diffusion_unet_hybrid_image_policy.DiffusionUnetHybridImagePolicy
   eta_coeff_critic: 0.005
   cond_predict_scale: true
-  crop_shape: [216, 216]
+  crop_shape: null
   diffusion_step_embed_dim: 128
   down_dims:
     - 512
@@ -176,6 +176,7 @@ task:
   dataset:
     _target_: diffusion_policy.dataset.real_franka_image_dataset.RealFrankaImageDataset
 #    abs_action: true
+    augment_data: true
     shape_meta:
       action:
         shape:
@@ -200,7 +201,7 @@ task:
         shape:
           - 1
         type: low_dim
-    dataset_path: /home/ros/humble/src/diffusion_policy/data/fake_puree_experiments/diffusion_policy_dataset_exp2_v2/
+    dataset_path: data/fake_puree_experiments/diffusion_policy_dataset_exp2_v2/
     dt: 0.1
     horizon: 16
     n_obs_steps: 4
@@ -221,7 +222,7 @@ task:
     _target_: diffusion_policy.env_runner.real_robot_runner.DummyImageRobot
 task_name: kitchen_lowdim
 training:
-  path_classifier_state_dict: data/outputs/classifier/2024.04.11/18.57.04_train_diffusion_unet_image_franka_kitchen_lowdim/classifier.pt
+  path_classifier_state_dict: data/outputs/classifier/2024.04.15/19.25.18_train_diffusion_unet_image_franka_kitchen_lowdim/classifier.pt
   checkpoint_every: 5  # Needs to be a multiple of sample_every
   debug: false
   device: cuda:0

@@ -136,8 +136,11 @@ def main():
     # ckpt_path = "/home/ros/humble/src/diffusion_policy/data/outputs/2024.04.08/16.24.23_train_diffusion_unet_image_franka_kitchen_lowdim/checkpoints/epoch=0280-mse_error_val=0.000.ckpt"  # with images
     # ckpt_path = "/home/ros/humble/src/diffusion_policy/data/outputs/2024.04.09/18.02.53_train_diffusion_unet_image_franka_kitchen_lowdim/checkpoints/epoch=1530-mse_error_val=0.000.ckpt"  # with images + mass
     # ckpt_path = "/home/ros/humble/src/diffusion_policy/data/outputs/2024.04.10/18.53.16_train_diffusion_unet_image_franka_kitchen_lowdim/checkpoints/latest.ckpt"  # with images + mass + critic
-    ckpt_path = "/home/ros/humble/src/diffusion_policy/data/outputs/2024.04.12/18.08.50_train_diffusion_unet_image_franka_kitchen_lowdim/checkpoints/epoch=1555-mse_error_val=0.000.ckpt"  # with images + mass + critic + classifier input.
+    # ckpt_path = "/home/ros/humble/src/diffusion_policy/data/outputs/2024.04.12/18.08.50_train_diffusion_unet_image_franka_kitchen_lowdim/checkpoints/epoch=1555-mse_error_val=0.000.ckpt"  # with images + mass + critic + classifier input.
+    ckpt_path = "/home/ros/humble/src/diffusion_policy/data/outputs/2024.04.15/20.14.56_train_diffusion_unet_image_franka_kitchen_lowdim/checkpoints/epoch=0485-mse_error_val=0.000.ckpt"  # with images + mass + critic + classifier input + GC
     dataset_dir = "/home/ros/humble/src/diffusion_policy/data/fake_puree_experiments/diffusion_policy_dataset_exp2_v2/"
+    path_classifier = "/home/ros/humble/src/diffusion_policy/data/outputs/classifier/2024.04.15/19.25.18_train_diffusion_unet_image_franka_kitchen_lowdim/classifier.pt"
+
 
     payload = torch.load(open(ckpt_path, 'rb'), pickle_module=dill)
     cfg = payload['cfg']
@@ -153,12 +156,15 @@ def main():
     policy = policy.eval()
     critic = critic.cuda()
     critic = critic.eval()
+
+    workspace.load_classifier(path_classifier)
+
     workspace.classifier = workspace.classifier.cuda()
     workspace.classifier = workspace.classifier.eval()
 
     # list_episodes = get_dataset(dataset_dir)
-    mass = 2.4
-    index_episode = 0
+    mass = 2.5
+    index_episode = 12
     one_episode = get_one_episode(dataset, mass=mass, index_episode=index_episode)
 
     sequence_observations = one_episode["obs"]
@@ -229,6 +235,7 @@ def main():
                                                                                             no_batch=False)
 
             action_dict = policy.predict_action_from_several_samples(obs_dict, critic, neutral_obs_dict)
+            # action_dict = policy.predict_action_from_several_samples(neutral_obs_dict, critic,)  # no classification guided sampling if reward depends of mass.
             # action_dict = policy.predict_action(obs_dict, neutral_obs_dict)
             # action_dict = policy.predict_action(neutral_obs_dict)
             np_action_dict = dict_apply(action_dict,

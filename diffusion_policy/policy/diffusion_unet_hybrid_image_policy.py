@@ -45,7 +45,7 @@ class DiffusionUnetHybridImagePolicy(BaseImagePolicy):
             obs_encoder_group_norm=False,
             eval_fixed_crop=False,
             gamma=0.99,
-            weight_classification_free_guidance_sampling=1.,
+            weight_classification_free_guidance_sampling=2.,
             # parameters passed to step
             **kwargs):
         super().__init__()

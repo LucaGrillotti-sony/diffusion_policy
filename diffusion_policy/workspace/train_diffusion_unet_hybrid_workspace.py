@@ -272,6 +272,10 @@ class TrainDiffusionUnetHybridWorkspace(BaseWorkspace):
         self.classifier = ClassifierStageScooping(width=240, height=240, number_of_classes=NUM_CLASSES)  # TODO: parametrize
         self.classifier.load_state_dict(torch.load(cfg.training.path_classifier_state_dict))
 
+    def load_classifier(self, path):
+        self.classifier.load_state_dict(torch.load(path))
+
+
     def add_scooping_accomplished_to_batch_from_classifier(self, obs, normalizer, no_batch=False):
         if no_batch:
             obs = dict_apply(obs, lambda x: torch.unsqueeze(x, dim=0))
@@ -443,7 +447,7 @@ class TrainDiffusionUnetHybridWorkspace(BaseWorkspace):
                         # # Update critic
                         # # print(batch['action'].shape, nobs_features_flat.shape)
                         nobs_camera = normalizer["camera_1"].normalize(batch["obs"]["camera_1"])  # TODO: make something more modular than hardcoding camera_1
-                        rewards = self.reward_function(nobs_camera=nobs_camera, actions=batch['action'], masses=batch['true_mass'])
+                        rewards = self.reward_function(nobs_camera=nobs_camera, actions=batch['action'], masses=batch['true_mass'], labels=torch.argmax(batch['obs']['scooping_accomplished'], axis=-1))
                         loss_critic, metrics_critic = self.critic.compute_critic_loss(batch,
                                                                                       nobs_features=_other_data_model[
                                                                                           'nobs_features'],
@@ -675,7 +679,7 @@ class TrainDiffusionUnetHybridWorkspace(BaseWorkspace):
         if postprocess_clip:
             self.postprocess_clip_lagrange()
 
-    def reward_function(self, nobs_camera, actions, masses):
+    def reward_function(self, nobs_camera, actions, masses, labels):
         assert self.classifier is not None, "Classifier not set"
 
         # calculate as done in the rest of the code using scoring_fn
@@ -689,15 +693,15 @@ class TrainDiffusionUnetHybridWorkspace(BaseWorkspace):
                                                                                                    self.cfg.policy.n_obs_steps)
         base_reward = base_reward.ravel()
 
-        self.classifier: ClassifierStageScooping
-        predictions = self.classifier.prediction(nobs_camera)
-        predictions = torch.max(predictions, dim=-1)[0]
-
         # If target mass achieved, the difference is the reward. Otherwise be pessimistic and take the target mass
-        rewards_stage = torch.zeros_like(predictions)
-        rewards_stage[predictions == 0] = -1 * torch.abs(self.target_mass)
-        rewards_stage[predictions == 1] = -1 * torch.abs(self.target_mass - masses)
-        rewards_stage[predictions == 2] = -1 * torch.abs(self.target_mass - masses)
+        labels = labels[..., -1]
+        labels = labels.ravel()
+        masses = masses.ravel()
+        rewards_stage = torch.zeros_like(labels).float()
+
+        rewards_stage[labels == 0] = -1 * self.target_mass
+        rewards_stage[labels == 1] = -1 * torch.abs(self.target_mass - masses[labels == 1].ravel())
+        rewards_stage[labels == 2] = -1 * torch.abs(self.target_mass - masses[labels == 2].ravel())
 
         full_reward = base_reward + rewards_stage
 

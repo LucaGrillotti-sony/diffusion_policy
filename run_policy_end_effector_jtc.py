@@ -102,7 +102,7 @@ class EnvControlWrapperJTC:
         # start with the initial position as a goal
         # self.initial_eef = RealFrankaImageDataset.FIXED_INITIAL_EEF
         initial_eef = np.asarray(
-            [0.43996018, 0.06893278, 0.40212647, 0.0673149, 0.96574436, 0.2338243, 0.03675712]
+            [0.40996018, 0.03893278, 0.45212647, 0.0673149, 0.96574436, 0.2338243, 0.03675712]
         )  # TODO: deal with initial eef
         self.initial_eef = self.convert_eef_to_kdl(initial_eef)  # PyKDL coordinate: tr=[x,y,z] and qu = [x,y,z,w]
 
@@ -386,7 +386,7 @@ class EnvControlWrapperWithCamerasJTC(EnvControlWrapperJTC):
         camera_0_full_data = RealFrankaImageDataset.moveaxis_rgbd(camera_0_full_data, single_rgb=True)
         camera_0_full_data = RealFrankaImageDataset.rgbd_255_to_1(camera_0_full_data)
 
-        self._save_image(camera_0_full_data.astype(np.float32))
+        # self._save_image(camera_0_full_data.astype(np.float32))
 
         return {
             'eef': pos_end_effector.astype(np.float32),
@@ -600,16 +600,16 @@ class DiffusionController(NodeParameterMixin,
             obs_dict = self.add_scooping_accomplished_fn(obs_dict)
             neutral_obs_dict = self.add_scooping_accomplished_fn(neutral_obs_dict)
 
-            obs_dict["scooping_accomplished"] = torch.zeros_like(obs_dict["scooping_accomplished"])
-            neutral_obs_dict["scooping_accomplished"] = torch.zeros_like(neutral_obs_dict["scooping_accomplished"])
-
-            obs_dict["scooping_accomplished"][..., 1] = 1.
-            neutral_obs_dict["scooping_accomplished"][..., 1] = 1.
+            # obs_dict["scooping_accomplished"] = torch.zeros_like(obs_dict["scooping_accomplished"])
+            # neutral_obs_dict["scooping_accomplished"] = torch.zeros_like(neutral_obs_dict["scooping_accomplished"])
+            #
+            # obs_dict["scooping_accomplished"][..., 1] = 1.
+            # neutral_obs_dict["scooping_accomplished"][..., 1] = 1.
 
             print("scooping achieved", obs_dict["scooping_accomplished"])
 
 
-            # action_dict = self.policy.predict_action(obs_dict, neutral_obs_dict)  # TODO
+            # action_dict = self.policy.predict_action_from_several_samples(neutral_obs_dict, critic_network=self.critic)
             action_dict = self.policy.predict_action_from_several_samples(obs_dict, critic_network=self.critic, neutral_obs_dict=neutral_obs_dict)
             # action_dict = self.policy.predict_action(obs_dict)
             np_action_dict = dict_apply(action_dict,
@@ -677,7 +677,9 @@ def main(args=None):
     # ckpt_path = "/home/ros/humble/src/diffusion_policy/data/outputs/2024.04.08/16.24.23_train_diffusion_unet_image_franka_kitchen_lowdim/checkpoints/epoch=0280-mse_error_val=0.000.ckpt"  # with images, n_obs_frames_stack = 4
     # ckpt_path = "/home/ros/humble/src/diffusion_policy/data/outputs/2024.04.09/18.02.53_train_diffusion_unet_image_franka_kitchen_lowdim/checkpoints/epoch=1530-mse_error_val=0.000.ckpt"  # with images + mass, n_obs_frames_stack = 4
     # ckpt_path = "/home/ros/humble/src/diffusion_policy/data/outputs/2024.04.10/18.53.16_train_diffusion_unet_image_franka_kitchen_lowdim/checkpoints/latest.ckpt"  # with images + mass + critic
-    ckpt_path = "/home/ros/humble/src/diffusion_policy/data/outputs/2024.04.12/18.08.50_train_diffusion_unet_image_franka_kitchen_lowdim/checkpoints/epoch=0765-mse_error_val=0.000.ckpt"  # with images + mass + critic + classifier input.
+    ckpt_path = "/home/ros/humble/src/diffusion_policy/data/outputs/2024.04.15/20.14.56_train_diffusion_unet_image_franka_kitchen_lowdim/checkpoints/epoch=0485-mse_error_val=0.000.ckpt"  # with images + mass + critic + classifier input + GC
+    dataset_dir = "/home/ros/humble/src/diffusion_policy/data/fake_puree_experiments/diffusion_policy_dataset_exp2_v2/"
+    path_classifier = "/home/ros/humble/src/diffusion_policy/data/outputs/classifier/2024.04.15/19.25.18_train_diffusion_unet_image_franka_kitchen_lowdim/classifier.pt"
 
 
     # n_obs_steps = 2 # TODO
@@ -687,7 +689,6 @@ def main(args=None):
 
     payload = torch.load(open(ckpt_path, 'rb'), pickle_module=dill)
     cfg = payload['cfg']
-    dataset_dir = "/home/ros/humble/src/diffusion_policy/data/fake_puree_experiments/diffusion_policy_dataset_exp2_v2/"
     cfg.task.dataset.dataset_path = dataset_dir
     cls = hydra.utils.get_class(cfg._target_)
     workspace = cls(cfg)
@@ -706,7 +707,9 @@ def main(args=None):
 
     policy = workspace.model
 
-    MASS_GOAL = 3
+    MASS_GOAL = 2.5
+
+    workspace.load_classifier(path_classifier)
 
     workspace.classifier = workspace.classifier.cuda()
     workspace.classifier = workspace.classifier.eval()
