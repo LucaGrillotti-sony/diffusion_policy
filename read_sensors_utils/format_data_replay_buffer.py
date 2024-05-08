@@ -309,27 +309,14 @@ def treat_folder(path_load, path_save, index_episode, mass):
         np.save(str(_path_numpy / name_numpy_file), data_img[key][0].img_np)
 
     print("Get End-effector")
-    # target_end_effector_poses = parser.get_messages("/cartesian_control")
     robot_states = parser.get_messages("/franka_robot_state_broadcaster/robot_state")
     print("robot states", len(robot_states))
 
-    # all_times_joint_states, all_end_effector_pos = collect_data_from_messages(joint_states, start_time, transform_fn=functools.partial(end_effector_calculator, _kdl=kdl))  # TODO
     all_times_joint_states, all_end_effector_pos = collect_data_from_messages(
         robot_states,
         start_time,
         transform_fn=lambda robot_state: end_effector_calculator(command_1=np.asarray(robot_state.q), _kdl=kdl),
-    )  # TODO
-
-    # all_times_cartesian_commands, all_end_effector_targets = collect_data_from_messages(target_end_effector_poses, start_time, transform_fn=lambda x: np.asarray(x.data))
-    # if len(all_end_effector_targets) == 0:
-    #     print("*** ERROR while reading target data, now using joints states data...")
-    #     all_times_cartesian_commands = all_times_joint_states[1:]
-    #     all_end_effector_targets = all_end_effector_pos[1:]
-    #
-    #     all_times_joint_states = all_times_joint_states[:-1]
-    #     all_end_effector_pos = all_end_effector_pos[:-1]
-
-    # target_end_effector_pos_interpolated = interpolate(all_times_cartesian_commands, all_end_effector_targets, timestamps_interpolation)
+    )
 
     # Interpolating all EEF poses and THEN defining the target EEF poses
     current_eef_pos_interpolated = interpolate(all_times_joint_states, all_end_effector_pos, timestamps_interpolation)
@@ -338,21 +325,6 @@ def treat_folder(path_load, path_save, index_episode, mass):
     current_eef_pos_interpolated = current_eef_pos_interpolated[:-1]
 
     print("Creating final data")
-
-    # for key, value in data_img.items():
-    #     array_img, array_timestamps = convert_to_arrays(value)
-    #     data_img[key] = array_img
-
-    # # testing compression video.
-    # import zarr
-    #
-    # register_codec(Jpeg2k)
-    #
-    # this_compressor = Jpeg2k(level=50)
-    # print("Shapes", data_img["azure_06"].shape, (1, *data_img["azure_06"].shape[1:]), target_end_effector_pos_interpolated.shape)
-    # z = zarr.array(data_img["azure_06"], chunks=(1, *data_img["azure_06"].shape[1:]), compressor=this_compressor, dtype=np.uint8)
-    # print(z.info)
-
     # saving array actions
     _path_folder = path_save / "actions" / str(index_episode)
     _path_folder.mkdir(exist_ok=True, parents=True)
@@ -383,8 +355,10 @@ def read_masses_csv(path_csv):
     import pandas as pd
     df = pd.read_csv(str(path_csv))
     dict_masses_per_index = dict()
+    df_index = df["index"]
+    df_mass = df["mass"]
     for index_row in range(len(df)):
-        dict_masses_per_index[int(df.iloc[index_row, 0])] = float(df.iloc[index_row, 1])
+        dict_masses_per_index[int(df_index[index_row])] = float(df_mass[index_row])
     return dict_masses_per_index
 
 
@@ -392,17 +366,13 @@ def main():
     PATH_TO_LOAD = pathlib.Path("/home/ros/humble/src/project_shokunin/shokunin_common/rl/scooping_agent/puree_agent/bags_parameterized_motion/").absolute()
     PATH_SAVE = pathlib.Path("/home/ros/humble/src/project_shokunin/shokunin_common/rl/scooping_agent/puree_agent/dataset_parameterized_motion/").absolute()
     
-    PATH_MASSES_CSV = PATH_TO_LOAD / "masses_per_demo.csv"
-    OVERRIDE = False
-
+    PATH_MASSES_CSV = PATH_TO_LOAD / "data.csv"
+    OVERRIDE = True
 
     PATH_SAVE.mkdir(exist_ok=True, parents=True)
     rosbag_paths = [file for file in PATH_TO_LOAD.iterdir() if file.name.startswith("rosbag")]
 
-    try:
-        masses_per_demo = read_masses_csv(PATH_MASSES_CSV)
-    except:
-        masses_per_demo = [None for _ in range(len(rosbag_paths))]
+    masses_per_demo = read_masses_csv(PATH_MASSES_CSV)
 
     for file in PATH_TO_LOAD.iterdir():
         print(file)

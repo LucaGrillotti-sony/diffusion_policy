@@ -173,61 +173,6 @@ class DDIMGuidedScheduler(SchedulerMixin, ConfigMixin):
         self.timesteps = torch.from_numpy(timesteps).to(device)
         self.timesteps += self.config.steps_offset
 
-    @classmethod
-    def scoring_fn(cls, array_actions, n_horizon, n_actions, n_obs):
-        coeff_speed = 0.1 # TODO: hyperparameter
-        coeff_acceleration = 1.
-
-        assert array_actions.shape[0] == n_horizon
-
-        # take only the actions after the first observations and with a length of n_actions
-        array_actions = array_actions[n_obs-1:]
-        array_actions = array_actions[:n_actions]
-        assert array_actions.shape[0] == n_actions
-
-        # array_actions = array_actions[]
-        array_actions = array_actions[:, :3]  # TODO: decide if we take 1st actions only
-        differences = array_actions[1:] - array_actions[:-1]
-
-        # distances = torch.norm(array_actions[0] - array_actions[-1], dim=-1) / (len(array_actions) - 1)
-        speeds = torch.norm(differences, dim=-1)
-        mean_speed = torch.mean(speeds)
-
-        accelerations = speeds[1:] - speeds[:-1]
-        norm_accelerations = torch.norm(accelerations, dim=-1)
-        neg_mean_acc = -1. * torch.mean(norm_accelerations)
-
-        # difference_speed_vectors = differences[1:] - differences[:-1]
-        # dot_product = torch.sum(differences[1:] * differences[:-1], dim=-1)
-        # cos_angle = dot_product / (torch.norm(differences[1:], dim=-1) * torch.norm(differences[:-1], dim=-1))
-        # cos_angle = torch.where(torch.isnan(cos_angle), 0., cos_angle)
-        #
-        # mean_cos_angle = torch.mean(cos_angle)
-        # print("components scoring fn", mean_distance, mean_cos_angle)
-
-        dict_reward = {
-            "mean_speed": mean_speed,
-            "neg_mean_acc": neg_mean_acc,
-            # "mean_cos_angle": mean_cos_angle,
-        }
-
-        dict_coefficients = {
-            "coeff_mean_speed": coeff_speed,
-            "coeff_neg_mean_acc": coeff_acceleration,
-            # "coeff_cos_angle": 0.05,  # TODO: hyperparameter
-        }
-
-        dict_rescaled_reward = {
-            f"rescaled_{key}": value * dict_coefficients[f"coeff_{key}"] for key, value in dict_reward.items()
-        }
-
-        metrics = {**dict_reward, **dict_rescaled_reward}
-
-        for key, value in dict_rescaled_reward.items():
-            metrics[key] = value
-
-        return sum(dict_rescaled_reward.values()), metrics
-
     def step(
         self,
         model_output: torch.FloatTensor,

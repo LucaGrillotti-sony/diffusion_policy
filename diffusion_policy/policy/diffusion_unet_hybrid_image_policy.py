@@ -251,45 +251,6 @@ class DiffusionUnetHybridImagePolicy(BaseImagePolicy):
         return trajectory, metrics
 
 
-    def optimize_trajectory(self, trajectory, local_cond, global_cond):
-        learning_rate = 0.005
-        with torch.enable_grad():
-            if local_cond is not None:
-                local_cond = local_cond.clone().detach().requires_grad_(True)
-            if global_cond is not None:
-                global_cond = global_cond.clone().detach().requires_grad_(True)
-
-            # todo for testing only
-            # array_actions = trajectory.clone().detach().requires_grad_(True)
-            array_actions = torch.nn.Parameter(trajectory, requires_grad=True)
-            optimizer = torch.optim.Adam(params=[array_actions])
-
-            for index in range(100 + 1):
-                # array_actions = array_actions.clone().detach().requires_grad_(True)
-                optimizer.zero_grad()
-
-                # array_actions_xyz = array_actions[:, :3]
-                loss = self.loss_trajectory(array_actions, local_cond, global_cond)
-                loss = torch.mean(loss)
-
-                loss.backward()
-                optimizer.step()
-
-                # gradient_classifier = torch.autograd.grad(loss, array_actions)[0]
-                # array_actions = array_actions - learning_rate * gradient_classifier
-                if index % 100 == 0:
-                    print(index, loss)
-        return array_actions
-
-    def loss_trajectory(self, trajectory, local_cond, global_cond):
-        score_trajectory, _ = DDIMGuidedScheduler.scoring_fn(trajectory[0], self.horizon, self.n_action_steps, self.n_obs_steps)
-        norm_gradient_energy = torch.norm(self.model(trajectory, timestep=0,
-                local_cond=local_cond, global_cond=global_cond))
-        print("norm_gradient", norm_gradient_energy, "score traj", score_trajectory)
-        coefficient = 800.  # todo
-        return norm_gradient_energy - coefficient * score_trajectory
-
-
     def predict_action(self, obs_dict: Dict[str, torch.Tensor], neutral_obs_dict=None) -> Dict[str, torch.Tensor]:
         """
         obs_dict: must include "obs" key
@@ -493,8 +454,7 @@ class DiffusionUnetHybridImagePolicy(BaseImagePolicy):
 
         critic_values = critic_network.get_one_critic(nactions_policy, local_cond=None, global_cond=global_cond,)
 
-        optimize_reward_boolean = batch["obs"]["optimize_reward_boolean"][:, 0]
-        critic_values = torch.flatten(critic_values) * torch.flatten(optimize_reward_boolean)
+        critic_values = torch.flatten(critic_values)
 
         loss_score = -1. * critic_values.mean()
 
@@ -524,11 +484,6 @@ class DiffusionUnetHybridImagePolicy(BaseImagePolicy):
         }
         return loss_actor, metrics, other_data
 
-    def calculate_reward(self, obs, action, next_obs):
-        start_index = self.n_obs_steps - 1
-        end_index = start_index + self.n_action_steps
-        rewards, _ = torch.vmap(DDIMGuidedScheduler.scoring_fn, in_dims=(0, None, None, None))(action, self.horizon, self.n_action_steps, self.n_obs_steps)
-        return rewards
 
     def compute_obs_encoding(self, batch, detach=False):
         assert 'valid_mask' not in batch

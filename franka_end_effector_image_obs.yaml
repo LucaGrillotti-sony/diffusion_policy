@@ -111,10 +111,6 @@ policy:
         shape:
           - 3
         type: low_dim
-      optimize_reward_boolean:
-        shape:
-          - 1
-        type: low_dim
   noise_scheduler:
     _target_: diffusers.schedulers.scheduling_ddim.DDIMScheduler
     num_train_timesteps: 100
@@ -141,7 +137,7 @@ critic:
     - 1024
     - 2048
   kernel_size: 5
-  n_obs_steps: 4 # TODO: put back to 2?
+  n_obs_steps: 4
   n_groups: 8
   shape_meta:
     action:
@@ -187,7 +183,7 @@ task:
           type: rgb
         mass:
           shape:
-            - 256 # after RFF
+            - 1
           type: low_dim
         eef:
           shape:
@@ -197,7 +193,7 @@ task:
         shape:
           - 1
         type: low_dim
-    dataset_path: data/fake_puree_experiments/diffusion_policy_dataset_exp2_v2_higher/
+    dataset_path: /home/lucagrillotti/ros/humble/src/project_shokunin/shokunin_common/rl/scooping_agent/puree_agent/dataset_parameterized_motion/
     dt: 0.1
     horizon: 16
     n_obs_steps: 4

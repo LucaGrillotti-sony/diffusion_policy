@@ -82,8 +82,6 @@ class EnvControlWrapperJTC:
             {
                 'eef': gym.spaces.Box(-8, 8, shape=(7,), dtype=np.float32),
                 'camera_1': gym.spaces.Box(0, 1, shape=(3, 240, 240), dtype=np.float32),  # TODO 3 -> 4, camera_1 -> camera_0
-                'optimize_reward_boolean': gym.spaces.Box(0, 1, shape=(1,), dtype=np.float32),
-                'optimize_reward_boolean_neutral': gym.spaces.Box(0, 1, shape=(1,), dtype=np.float32),
                 # 'mass': gym.spaces.Box( -1, 1, shape=(256,), dtype=np.float32),
                 # 'mass_neutral': gym.spaces.Box( -1, 1, shape=(256,), dtype=np.float32),
             }
@@ -395,8 +393,6 @@ class EnvControlWrapperWithCamerasJTC(EnvControlWrapperJTC):
         return {
             'eef': pos_end_effector.astype(np.float32),
             'camera_1': camera_0_full_data.astype(np.float32),  # TODO camera_1 -> camera_0
-            'optimize_reward_boolean': np.ones(shape=(1,)),
-            'optimize_reward_boolean_neutral': np.zeros(shape=(1,)),
             # 'mass': self.mass_encoding.astype(np.float32),
             # 'mass_neutral': self.mass_encoding_neutral.astype(np.float32),
         }
@@ -569,7 +565,7 @@ class DiffusionController(NodeParameterMixin,
         # jac
 
 
-        keys_obs = ("camera_1", "eef", "mass", "optimize_reward_boolean") # TODO
+        keys_obs = ("camera_1", "eef", "mass",) # TODO
         # keys_obs = ("camera_1", "eef", )  # TODO: camera_1 -> camera_0
         # keys_obs = ("eef",)
 
@@ -582,9 +578,6 @@ class DiffusionController(NodeParameterMixin,
                 for key, value in stacked_obs.items()
             }
             # stacked_neutral_obs["mass"] = stacked_neutral_obs["mass_neutral"]
-            stacked_neutral_obs["optimize_reward_boolean"] = stacked_neutral_obs["optimize_reward_boolean_neutral"]
-            del stacked_obs["optimize_reward_boolean_neutral"]
-            del stacked_neutral_obs["optimize_reward_boolean_neutral"]
 
             stacked_obs = dict_apply(stacked_obs, lambda x: x.reshape(1, *x.shape))
             stacked_neutral_obs = dict_apply(stacked_neutral_obs, lambda x: x.reshape(1, *x.shape))

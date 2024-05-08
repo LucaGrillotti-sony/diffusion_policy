@@ -225,8 +225,6 @@ class RealFrankaImageDataset(BaseImageDataset):
         self.mass_encoding_size = mass_encoding_size
         self.period_adjustment_rff = period_adjustment_rff
 
-        self.rff_encoder = RandomFourierFeatures(encoding_size=self.mass_encoding_size, vector_size=2,
-                                                 period_adjustment_rff=self.period_adjustment_rff)
         self.proba_diffusion_remove_mass_label = proba_diffusion_remove_mass_label
 
         if augment_data:
@@ -243,8 +241,6 @@ class RealFrankaImageDataset(BaseImageDataset):
         return self.augment_data_fn is not None
 
     def get_augment_data_fn(self):
-        obs_shape_meta = self.shape_meta["obs"]
-
         jitter = v2.ColorJitter(brightness=.5, hue=.3)
         random_shift_fn = DataAugmentationRandomShifts(pad=0).forward
 
@@ -264,60 +260,15 @@ class RealFrankaImageDataset(BaseImageDataset):
         val_set.augment_data_fn = None
         return val_set
 
-    def encode_mass(self, mass, ):
-        mass_len = mass.shape[0]
-        if random.random() < self.proba_diffusion_remove_mass_label:
-            mass_v = np.asarray([[0., 1.] for _ in range(mass_len)])
-        else:
-            mass_v = np.hstack((mass.reshape(mass_len, 1), np.zeros(shape=(mass_len, 1))))
-            # mass_v = np.asarray([mass, 0.] for _ in range(mass_len))
-
-        mass_encoding = self.rff_encoder.encode_vector(mass_v)
-        return mass_encoding
-
-    def get_vector_mass(self, mass, neutral=False):
-        mass_len = mass.shape[0]
-        if not neutral:
-            mass_v = np.hstack((mass.reshape(mass_len, 1), np.zeros(shape=(mass_len, 1))))
-        else:
-            mass_v = np.asarray([[0., 1.] for _ in range(mass_len)])
-        return mass_v
-
     def get_normalizer(self, **kwargs) -> LinearNormalizer:
         normalizer = LinearNormalizer()
 
-        # action
-        # normalizer['action'] = SingleFieldLinearNormalizer.create_fit(
-        #     self.replay_buffer['action'])
-        print('Fitting normalizer for action')
-        import multiprocessing as mp
-        # def f(i):
-        #     return self[i]
-        # with mp.Pool(16) as pool:
-        #     all_sequences = pool.map(self.__getitem__, list(range(self.__len__())))
-
-        # all_relative_action_seq = list()
-        # # all_relative_eef = list()
-        # for _seq in all_sequences:
-        #     relative_seq = _seq['action']
-        #     # relative_eef = _seq['obs']['eef']  # TODO: find 
-        #     all_relative_action_seq.append(relative_seq)
-        #     # all_relative_eef.append(relative_eef)
-        # all_relative_actions = np.concatenate(all_relative_action_seq, axis=0)
-        # all_relative_eef = np.concatenate(all_relative_eef, axis=0)
-        # normalizer['action'] = SingleFieldLinearNormalizer.create_fit(all_relative_actions)
-        # print("initial_eef", all_relative_eef[0])
-
         normalizer['action'] = SingleFieldLinearNormalizer.create_fit(self.replay_buffer['action'])
-
-        normalizer["optimize_reward_boolean"] = SingleFieldLinearNormalizer.create_identity()
 
         # obs
         for key in self.lowdim_keys:
             if key == 'mass':
                 normalizer[key] = SingleFieldLinearNormalizer.create_identity()
-            # elif key == 'eef':
-            #     normalizer[key] = SingleFieldLinearNormalizer.create_fit(all_relative_eef)
             else:
                 normalizer[key] = SingleFieldLinearNormalizer.create_fit(self.replay_buffer[key])
 
@@ -422,15 +373,6 @@ class RealFrankaImageDataset(BaseImageDataset):
         labels_obs = labels_all[T_slice]
         labels_next_obs = labels_all[next_T_slice]
 
-        if 'mass' in obs_dict:
-            true_mass = obs_dict['mass']
-            obs_dict['mass'] = self.encode_mass(obs_dict['mass'])
-            next_obs_dict['mass'] = self.encode_mass(next_obs_dict['mass'])
-
-        obs_dict["optimize_reward_boolean"] = np.random.choice([0., 1.], size=(1, 1), p=[0.25, 0.75])
-        obs_dict["optimize_reward_boolean"] = np.repeat(obs_dict["optimize_reward_boolean"], repeats=4, axis=0)
-        next_obs_dict["optimize_reward_boolean"] = obs_dict["optimize_reward_boolean"]
-
         # handle latency by dropping first n_latency_steps action
         # observations are already taken care of by T_slice
         if self.n_latency_steps > 0:
@@ -449,6 +391,7 @@ class RealFrankaImageDataset(BaseImageDataset):
         }
 
         if 'mass' in obs_dict:
+            true_mass = obs_dict['mass']
             torch_data.update({'true_mass': torch.from_numpy(true_mass)})
 
         torch_data['obs'] = self.add_scooping_accomplished_to_batch(torch_data['obs'], labels_obs)

@@ -10,10 +10,6 @@ import torch
 import threading
 
 
-# from dartlib.dart.artifact import get_artifact_writer, Artifact
-# ARTIFACTS = get_artifact_writer()
-
-
 class BaseWorkspace:
     include_keys = tuple()
     exclude_keys = tuple()

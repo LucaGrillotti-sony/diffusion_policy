@@ -36,11 +36,6 @@ from diffusion_policy.common.pytorch_util import dict_apply, optimizer_to, custo
 from diffusion_policy.model.diffusion.ema_model import EMAModel
 from diffusion_policy.model.common.lr_scheduler import get_scheduler
 
-# from dart_client.metrics import get_metric_writer
-# from dartlib.dart2.run_config import init_run_config
-
-# METRICS = get_metric_writer()
-
 OmegaConf.register_new_resolver("eval", eval, replace=True)
 
 
@@ -445,9 +440,7 @@ class TrainDiffusionUnetHybridWorkspace(BaseWorkspace):
                         self.update_lagrange(raw_loss_lagrange)
 
                         # # Update critic
-                        # # print(batch['action'].shape, nobs_features_flat.shape)
-                        nobs_camera = normalizer["camera_1"].normalize(batch["obs"]["camera_1"])  # TODO: make something more modular than hardcoding camera_1
-                        rewards = self.reward_function(nobs_camera=nobs_camera, actions=batch['action'], masses=batch['true_mass'], labels=torch.argmax(batch['obs']['scooping_accomplished'], axis=-1))
+                        rewards = self.reward_function(masses=batch['true_mass'], labels_scooping_achieved=torch.argmax(batch['obs']['scooping_accomplished'], axis=-1))
                         loss_critic, metrics_critic = self.critic.compute_critic_loss(batch,
                                                                                       nobs_features=_other_data_model[
                                                                                           'nobs_features'],
@@ -484,9 +477,6 @@ class TrainDiffusionUnetHybridWorkspace(BaseWorkspace):
                         if not is_last_batch:
                             # log of last step is combined with validation and rollout
                             wandb_run.log(step_log, step=self.global_step)
-                            # bind logical timestamp "model_clock" to any metrics written under this context
-                            # with METRICS.bind(model_clock=self.global_step):
-                            #     METRICS.write({key: float(value) for key, value in step_log.items()}, {"global_step": self.global_step})
 
                             json_logger.log(step_log)
                             self.global_step += 1
@@ -679,31 +669,24 @@ class TrainDiffusionUnetHybridWorkspace(BaseWorkspace):
         if postprocess_clip:
             self.postprocess_clip_lagrange()
 
-    def reward_function(self, nobs_camera, actions, masses, labels):
+    def reward_function(self, masses, labels_scooping_achieved):
         assert self.classifier is not None, "Classifier not set"
 
         # calculate as done in the rest of the code using scoring_fn
-        nobs_camera = nobs_camera[:, self.cfg.policy.n_obs_steps - 1, ...]
         masses = masses[:, self.cfg.policy.n_obs_steps - 1, ...]
         masses = torch.clamp(masses, min=self.bounds_mass[0], max=self.bounds_mass[1])
 
-        base_reward, _ = torch.vmap(DDIMGuidedScheduler.scoring_fn, in_dims=(0, None, None, None))(actions,
-                                                                                                   self.cfg.policy.horizon,
-                                                                                                   self.cfg.policy.n_action_steps,
-                                                                                                   self.cfg.policy.n_obs_steps)
-        base_reward = base_reward.ravel()
-
         # If target mass achieved, the difference is the reward. Otherwise be pessimistic and take the target mass
-        labels = labels[..., -1]
-        labels = labels.ravel()
+        labels_scooping_achieved = labels_scooping_achieved[..., -1]
+        labels_scooping_achieved = labels_scooping_achieved.ravel()
         masses = masses.ravel()
-        rewards_stage = torch.zeros_like(labels).float()
+        rewards_mass = torch.zeros_like(labels_scooping_achieved).float()
 
-        rewards_stage[labels == 0] = -1 * self.target_mass
-        rewards_stage[labels == 1] = -1 * torch.abs(self.target_mass - masses[labels == 1].ravel())
-        rewards_stage[labels == 2] = -1 * torch.abs(self.target_mass - masses[labels == 2].ravel())
+        rewards_mass[labels_scooping_achieved == 0] = -1 * self.target_mass
+        rewards_mass[labels_scooping_achieved == 1] = -1 * torch.abs(self.target_mass - masses[labels_scooping_achieved == 1].ravel())
+        rewards_mass[labels_scooping_achieved == 2] = -1 * torch.abs(self.target_mass - masses[labels_scooping_achieved == 2].ravel())
 
-        full_reward = base_reward + rewards_stage
+        full_reward = rewards_mass
 
         return full_reward
 
