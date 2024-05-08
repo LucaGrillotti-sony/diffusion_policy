@@ -45,7 +45,7 @@ class DiffusionUnetHybridImagePolicy(BaseImagePolicy):
             obs_encoder_group_norm=False,
             eval_fixed_crop=False,
             gamma=0.99,
-            weight_classification_free_guidance_sampling=5.,
+            weight_classification_free_guidance_sampling=1.,
             # parameters passed to step
             **kwargs):
         super().__init__()
@@ -251,45 +251,6 @@ class DiffusionUnetHybridImagePolicy(BaseImagePolicy):
         return trajectory, metrics
 
 
-    def optimize_trajectory(self, trajectory, local_cond, global_cond):
-        learning_rate = 0.005
-        with torch.enable_grad():
-            if local_cond is not None:
-                local_cond = local_cond.clone().detach().requires_grad_(True)
-            if global_cond is not None:
-                global_cond = global_cond.clone().detach().requires_grad_(True)
-
-            # todo for testing only
-            # array_actions = trajectory.clone().detach().requires_grad_(True)
-            array_actions = torch.nn.Parameter(trajectory, requires_grad=True)
-            optimizer = torch.optim.Adam(params=[array_actions])
-
-            for index in range(100 + 1):
-                # array_actions = array_actions.clone().detach().requires_grad_(True)
-                optimizer.zero_grad()
-
-                # array_actions_xyz = array_actions[:, :3]
-                loss = self.loss_trajectory(array_actions, local_cond, global_cond)
-                loss = torch.mean(loss)
-
-                loss.backward()
-                optimizer.step()
-
-                # gradient_classifier = torch.autograd.grad(loss, array_actions)[0]
-                # array_actions = array_actions - learning_rate * gradient_classifier
-                if index % 100 == 0:
-                    print(index, loss)
-        return array_actions
-
-    def loss_trajectory(self, trajectory, local_cond, global_cond):
-        score_trajectory, _ = DDIMGuidedScheduler.scoring_fn(trajectory[0], self.horizon, self.n_action_steps, self.n_obs_steps)
-        norm_gradient_energy = torch.norm(self.model(trajectory, timestep=0,
-                local_cond=local_cond, global_cond=global_cond))
-        print("norm_gradient", norm_gradient_energy, "score traj", score_trajectory)
-        coefficient = 800.  # todo
-        return norm_gradient_energy - coefficient * score_trajectory
-
-
     def predict_action(self, obs_dict: Dict[str, torch.Tensor], neutral_obs_dict=None) -> Dict[str, torch.Tensor]:
         """
         obs_dict: must include "obs" key
@@ -433,7 +394,7 @@ class DiffusionUnetHybridImagePolicy(BaseImagePolicy):
         if self.obs_as_global_cond:
             # reshape B, T, ... to B*T
             this_nobs = dict_apply(nobs,
-                lambda x: x[:,:self.n_obs_steps,...].reshape(-1,*x.shape[2:]))
+                lambda x: x[:, :self.n_obs_steps, ...].reshape(-1,*x.shape[2:]))
             nobs_features = self.obs_encoder(this_nobs)
             # reshape back to B, Do
             global_cond = nobs_features.reshape(batch_size, -1)
@@ -485,45 +446,44 @@ class DiffusionUnetHybridImagePolicy(BaseImagePolicy):
         loss_diffusion = reduce(loss_diffusion, 'b ... -> b (...)', 'mean')
         loss_diffusion = loss_diffusion.mean()
 
-        # actions_policy_dict = self.predict_action(batch['obs'])
-        # actions_policy = actions_policy_dict["action_pred"]
+
+        actions_policy_dict = self.predict_action(batch['obs'])
+        actions_policy = actions_policy_dict["action_pred"]
         # Compute critic values
-        # nactions_policy = self.normalizer['action'].normalize(actions_policy)
+        nactions_policy = self.normalizer['action'].normalize(actions_policy)
 
-        # critic_values = critic_network.get_one_critic(nactions_policy, local_cond=None, global_cond=global_cond,)
+        critic_values = critic_network.get_one_critic(nactions_policy, local_cond=None, global_cond=global_cond,)
 
-        # loss_score = -1. * critic_values.mean()
+        critic_values = torch.flatten(critic_values)
 
-        # with torch.no_grad():
-        #     nactions_dataset = nactions_dataset.detach()
-        #     critic_values_cst = critic_network.get_one_critic(nactions_dataset, local_cond=None, global_cond=global_cond)
-        #     critic_values_cst = critic_values_cst.detach()
-        #     mean_abs_critic_values = torch.mean(torch.abs(critic_values_cst))
+        loss_score = -1. * critic_values.mean()
 
-        # alpha_coeff = self.eta_coeff_critic / mean_abs_critic_values
-        # loss_score = alpha_coeff * loss_score
+        with torch.no_grad():
+            nactions_dataset = nactions_dataset.detach()
+            critic_values_cst = critic_network.get_one_critic(nactions_dataset, local_cond=None, global_cond=global_cond)
+            critic_values_cst = critic_values_cst.detach()
+            mean_abs_critic_values = torch.mean(torch.abs(critic_values_cst))
 
-        # loss_actor = loss_diffusion + sigmoid_lagrange * loss_score
-        loss_actor = loss_diffusion
+        alpha_coeff = self.eta_coeff_critic / mean_abs_critic_values
+        loss_score = alpha_coeff * loss_score
+
+
+        loss_actor = loss_diffusion + sigmoid_lagrange * loss_score
+        # loss_actor = loss_diffusion
 
         # loss_lagrange = self.compute_loss_lagrange(actions_policy_dict, batch)
         metrics = {
             "diffusion_loss": loss_diffusion,
-            # "score_loss": loss_score,
-            # "alpha_coeff": alpha_coeff,
-            # "critic_values": critic_values.mean(),
+            "score_loss": loss_score,
+            "alpha_coeff": alpha_coeff,
+            "critic_values": critic_values.mean(),
         }
         other_data = {
-            # "sample_actions": actions_policy_dict,
+            "sample_actions": actions_policy_dict,
             "nobs_features": nobs_features,
         }
         return loss_actor, metrics, other_data
 
-    def calculate_reward(self, obs, action, next_obs):
-        start_index = self.n_obs_steps - 1
-        end_index = start_index + self.n_action_steps
-        rewards, _ = torch.vmap(DDIMGuidedScheduler.scoring_fn, in_dims=(0, None, None, None))(action, self.horizon, self.n_action_steps, self.n_obs_steps)
-        return rewards
 
     def compute_obs_encoding(self, batch, detach=False):
         assert 'valid_mask' not in batch

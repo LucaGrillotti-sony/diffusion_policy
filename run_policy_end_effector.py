@@ -76,7 +76,7 @@ class EnvControlWrapper:
         self.observation_space = gym.spaces.Dict(
             {
                 'eef': gym.spaces.Box(-8, 8, shape=(7,), dtype=np.float32),
-                'camera_0': gym.spaces.Box(0, 1, shape=(4, 240, 240), dtype=np.float32),
+                # 'camera_0': gym.spaces.Box(0, 1, shape=(4, 240, 240), dtype=np.float32),  # TODO
                 # 'mass': gym.spaces.Box( -1, 1, shape=(256,), dtype=np.float32),
                 # 'mass_neutral': gym.spaces.Box( -1, 1, shape=(256,), dtype=np.float32),
             }
@@ -106,7 +106,8 @@ class EnvControlWrapper:
 
         # start with the initial position as a goal
         # self.initial_eef = RealFrankaImageDataset.FIXED_INITIAL_EEF
-        self.initial_eef = np.asarray([0.40996018, 0.03893278, 0.45212647, 0.0673149, 0.96574436, 0.2338243, 0.03675712])
+        self.initial_eef = np.asarray(
+            [0.40996018, 0.03893278, 0.45212647, 0.0673149, 0.96574436, 0.2338243, 0.03675712])
 
         self.push_actions([self.initial_eef] * 50, force=True)
 
@@ -210,6 +211,9 @@ class EnvControlWrapper:
         msg = Float64MultiArray()
         msg.layout.dim = [MultiArrayDimension(size=7, stride=1)]
         msg.data = list(jpos)
+        print("len msg", len(list(jpos)))
+        if len(list(jpos)) == 0:
+            return
         self._jpc_pub.publish(msg)
 
     def get_joints_pos(self):
@@ -239,7 +243,6 @@ class EnvControlWrapperWithCameras(EnvControlWrapper):
 
         self._index_image = 0
 
-
     def _get_mass_encoding(self, mass, rff_encoder):
         if mass is None:
             _mass_encoding = np.array([[0., 1.]])
@@ -256,13 +259,14 @@ class EnvControlWrapperWithCameras(EnvControlWrapper):
 
     def get_obs(self):
         if (self._jstate is None
-            or self.camera_0_compressed_msg is None
-            or self.camera_0_depth_compressed_msg is None
+                # or self.camera_0_compressed_msg is None # TODO
+                # or self.camera_0_depth_compressed_msg is None
         ):
             print(f"WARNING, the following are None:")
             print(f"self._jstate: {'not None' if self._jstate is not None else 'None'}")
-            print(f"self.camera_0_compressed_msg: {'not None' if self.camera_0_compressed_msg is not None else 'None'}")
-            print(f"self.camera_0_depth_compressed_msg: {'not None' if self.camera_0_depth_compressed_msg is not None else 'None'}")
+            # print(f"self.camera_0_compressed_msg: {'not None' if self.camera_0_compressed_msg is not None else 'None'}")  # TODO
+            # print(
+            #     f"self.camera_0_depth_compressed_msg: {'not None' if self.camera_0_depth_compressed_msg is not None else 'None'}")
             return None
         else:
             return self._compute_obs()
@@ -270,23 +274,26 @@ class EnvControlWrapperWithCameras(EnvControlWrapper):
     def _compute_obs(self):
         pos_end_effector = end_effector_calculator(self._jstate, self._kdl)
 
-        camera_0_data = convert_image(cv_bridge=self.cv_bridge, msg_ros=self.camera_0_compressed_msg)
-        camera_0_data = self._bgr_to_rgb(camera_0_data)
-        
-        camera_0_depth_data = convert_image(cv_bridge=self.cv_bridge, msg_ros=self.camera_0_depth_compressed_msg, is_depth=True)
 
-        camera_0_full_data = RealFrankaImageDataset.concatenate_rgb_depth(camera_0_data, camera_0_depth_data)
-        camera_0_full_data = RealFrankaImageDataset.moveaxis_rgbd(camera_0_full_data, single_rgb=True)
-        camera_0_full_data = RealFrankaImageDataset.rgbd_255_to_1(camera_0_full_data)
+        # TODO
+        # camera_0_data = convert_image(cv_bridge=self.cv_bridge, msg_ros=self.camera_0_compressed_msg)
+        # camera_0_data = self._bgr_to_rgb(camera_0_data)
+        #
+        # camera_0_depth_data = convert_image(cv_bridge=self.cv_bridge, msg_ros=self.camera_0_depth_compressed_msg,
+        #                                     is_depth=True)
+        #
+        # camera_0_full_data = RealFrankaImageDataset.concatenate_rgb_depth(camera_0_data, camera_0_depth_data)
+        # camera_0_full_data = RealFrankaImageDataset.moveaxis_rgbd(camera_0_full_data, single_rgb=True)
+        # camera_0_full_data = RealFrankaImageDataset.rgbd_255_to_1(camera_0_full_data)
 
-        self._save_image(camera_0_full_data.astype(np.float32))
+        # self._save_image(camera_0_full_data.astype(np.float32))
 
         return {
             'eef': pos_end_effector.astype(np.float32),
-            'camera_0': camera_0_full_data.astype(np.float32),
+            # 'camera_0': camera_0_full_data.astype(np.float32),  # TODO
             # 'mass': self.mass_encoding.astype(np.float32),
             # 'mass_neutral': self.mass_encoding_neutral.astype(np.float32),
-        }        
+        }
 
     def _bgr_to_rgb(self, data):
         return data[..., ::-1]
@@ -296,7 +303,7 @@ class EnvControlWrapperWithCameras(EnvControlWrapper):
 
         plt.clf()
         plt.cla()
-        img = data[:3] # Taking only RGB
+        img = data[:3]  # Taking only RGB
         print(f"Saving image {i} with shape", img.shape)
         # img = np.repeat(img, 3, axis=0)
         # print("image", i)
@@ -305,7 +312,6 @@ class EnvControlWrapperWithCameras(EnvControlWrapper):
         plt.savefig(self.path_debug / f"image_{i}.png")
 
         self._index_image += 1
-
 
 
 class EnvControlWrapperReplayDataset(EnvControlWrapperWithCameras):
@@ -318,30 +324,24 @@ class EnvControlWrapperReplayDataset(EnvControlWrapperWithCameras):
 
     def _compute_obs(self):
         pos_end_effector = self.episode_to_replay["obs"]["eef"][self._index_obs]
-        camera_0_rgb = self.episode_to_replay["obs"]["camera_1"][self._index_obs]
-        camera_0_depth = self.episode_to_replay["obs"]["camera_0"][self._index_obs]
-        camera_0_full_data = RealFrankaImageDataset.concatenate_rgb_depth(camera_0_rgb, camera_0_depth)
-        camera_0_full_data = RealFrankaImageDataset.moveaxis_rgbd(camera_0_full_data)
-        camera_0_full_data = RealFrankaImageDataset.rgbd_255_to_1(camera_0_full_data)
+        camera_0_data = self.episode_to_replay["obs"]["camera_0"][self._index_obs]
 
-        self._save_image(camera_0_full_data.astype(np.float32))
+        self._save_image(camera_0_data)
 
         return {
             'eef': pos_end_effector.astype(np.float32),
-            'camera_0': camera_0_full_data.astype(np.float32),
-            # 'mass': self.mass_encoding.astype(np.float32),
-            # 'mass_neutral': self.mass_encoding_neutral.astype(np.float32),
+            'camera_0': camera_0_data.astype(np.float32),
         }
 
     @classmethod
     def create(cls, jpc_pub, n_obs_steps, n_action_steps, path_bag_robot_description,
-                 rff_encoder: RandomFourierFeatures, dataset, index_episode, mass_goal=None):
+               rff_encoder: RandomFourierFeatures, dataset, index_episode, mass_goal=None):
         episode_to_replay = get_one_episode(dataset, mass_goal, index_episode)
-        return cls(jpc_pub, n_obs_steps, n_action_steps, path_bag_robot_description, rff_encoder, episode_to_replay, mass_goal)
+        return cls(jpc_pub, n_obs_steps, n_action_steps, path_bag_robot_description, rff_encoder, episode_to_replay,
+                   mass_goal)
 
     def increment_step(self):
         self._index_obs += 1
-
 
 
 class DiffusionController(NodeParameterMixin,
@@ -357,7 +357,8 @@ class DiffusionController(NodeParameterMixin,
         camera_0_depth_topic="/d405rs01/aligned_depth_to_color/image_raw",
     )
 
-    def __init__(self, policy, critic, n_obs_steps, n_action_steps, path_bag_robot_description, rff_encoder, mass_goal, dataset,
+    def __init__(self, policy, critic, n_obs_steps, n_action_steps, path_bag_robot_description, rff_encoder, mass_goal,
+                 dataset,
                  *args, node_name='robot_calibrator', **kwargs):
         super().__init__(*args, node_name=node_name, node_parameters=self.NODE_PARAMETERS, **kwargs)
         # jtc commandor
@@ -375,14 +376,20 @@ class DiffusionController(NodeParameterMixin,
         self.kdl = KDLSolver(self.robot_description)
         self.kdl.set_kinematic_chain('panda_link0', 'panda_hand')
 
-        self.env = EnvControlWrapperReplayDataset.create(self.jpc_pub,
+        # self.env = EnvControlWrapperReplayDataset.create(self.jpc_pub,
+        #                                                  n_obs_steps=n_obs_steps,
+        #                                                  n_action_steps=n_action_steps,
+        #                                                  path_bag_robot_description=path_bag_robot_description,
+        #                                                  rff_encoder=rff_encoder,
+        #                                                  mass_goal=mass_goal,
+        #                                                  dataset=dataset,
+        #                                                  index_episode=0)
+        self.env = EnvControlWrapperWithCameras(self.jpc_pub,
                                                 n_obs_steps=n_obs_steps,
                                                 n_action_steps=n_action_steps,
                                                 path_bag_robot_description=path_bag_robot_description,
                                                 rff_encoder=rff_encoder,
-                                                mass_goal=mass_goal,
-                                                dataset=dataset,
-                                                index_episode=0)
+                                                mass_goal=mass_goal, )
         self.policy = policy
         self.policy = self.policy.eval()
         self.policy = self.policy.cuda()
@@ -441,21 +448,23 @@ class DiffusionController(NodeParameterMixin,
         # self.publish_cartesian_commands(dx, dq)
 
         # jac
-        # pos_x, pos_q = self.kdl.compute_fk(jnts_obs)
+        pos_x, pos_q = self.kdl.compute_fk(jnts_obs)
+        pos_q = np.asarray([pos_q[3], pos_q[0], pos_q[1], pos_q[2]])
         # init_pos_x, init_pos_q = self.kdl.compute_fk(self.env.init_pos)
-        pos = obs["eef"]
-        assert len(pos) == 7
-        pos_x = pos[:3]
-        pos_q = pos[3:]
+        # pos = obs["eef"]
+        # assert len(pos) == 7
+        # pos_x = pos[:3]
+        # pos_q = pos[3:]
 
-        # keys_obs = ("camera_0", "eef", "mass") TODO
-        keys_obs = ("camera_0", "eef", )
+        # keys_obs = ("camera_0", "eef", "mass") # TODO
+        # keys_obs = ("camera_0", "eef", ) # TODO
+        keys_obs = ("eef",)
 
         if self.env.queue_actions.empty():
             self.get_logger().info("Adding actions to buffer")
             with torch.no_grad():
                 stacked_obs = self.env.request_stacked_obs()
-                
+
                 stacked_neutral_obs = {
                     key: value
                     for key, value in stacked_obs.items()
@@ -484,7 +493,7 @@ class DiffusionController(NodeParameterMixin,
                 obs_dict = dict_apply(filtered_stacked_obs,
                                       lambda x: torch.from_numpy(x).cuda())
                 neutral_obs_dict = dict_apply(filtered_stacked_neutral_obs,
-                                      lambda x: torch.from_numpy(x).cuda())
+                                              lambda x: torch.from_numpy(x).cuda())
 
                 # action_dict = self.policy.predict_action_from_several_samples(obs_dict, self.critic, )
 
@@ -510,6 +519,10 @@ class DiffusionController(NodeParameterMixin,
 
                 self.env.push_actions([_dq for _dq in absolute_actions])
 
+                # TODO
+                # self.env.push_actions([filtered_stacked_obs["eef"][-1] for _ in range(5)], force=True)
+                # self.env.increment_step()
+
                 # self.env.push_actions([array_dq[0]])
 
         action_to_execute = self.env.get_from_queue_actions()
@@ -519,7 +532,7 @@ class DiffusionController(NodeParameterMixin,
         new_pos_x = action_to_execute[0:3]
         new_pos_q = action_to_execute[3:7].ravel()
         new_pos_q = new_pos_q / np.linalg.norm(new_pos_q)
-        new_pos = se3(new_pos_x, new_pos_q)
+        # new_pos = se3(new_pos_x, new_pos_q)
         # new_pos_q = quat.from_float_array(new_pos_q)
         dx = (new_pos_x - pos_x)
         # dq_rot = (quat.from_float_array(pos_q).conjugate() * quat.from_float_array(init_pos_q))
@@ -543,10 +556,10 @@ class DiffusionController(NodeParameterMixin,
         #     return
 
         # print(self.current_command, jnts_obs)
-        self.current_command = (0.3 * self.current_command + 0.7 * jnts_obs) + dq
+        self.current_command = (0.3 * self.current_command + 0.7 * jnts_obs) + dq  # TODO
         # self.current_command = dq + jnts_obs
 
-        self.get_logger().info(str(self.current_command - jnts_obs))
+        self.get_logger().info(f"DIFFERENCE {self.current_command - jnts_obs}")
 
         self.env.step(self.current_command)
 
@@ -559,15 +572,18 @@ class DiffusionController(NodeParameterMixin,
 def main(args=None):
     # ckpt_path = "/home/ros/humble/src/diffusion_policy/data/outputs/2024.04.01/18.11.01_train_diffusion_unet_image_franka_kitchen_lowdim/checkpoints/latest.ckpt"
     # ckpt_path = "/home/ros/humble/src/diffusion_policy/data/outputs/2024.04.04/13.48.15_train_diffusion_unet_image_franka_kitchen_lowdim/checkpoints/latest.ckpt"
-    ckpt_path = "/home/ros/humble/src/diffusion_policy/data/outputs/2024.04.04/19.35.49_train_diffusion_unet_image_franka_kitchen_lowdim/checkpoints/latest.ckpt"
+    # ckpt_path = "/home/ros/humble/src/diffusion_policy/data/outputs/2024.04.04/19.35.49_train_diffusion_unet_image_franka_kitchen_lowdim/checkpoints/latest.ckpt"
+    ckpt_path = "/home/ros/humble/src/diffusion_policy/data/outputs/2024.04.08/14.10.05_train_diffusion_unet_image_franka_kitchen_lowdim/checkpoints/latest.ckpt"
 
-    n_obs_steps = 2
+    # n_obs_steps = 2 # TODO
+    n_obs_steps = 4
     n_action_steps = 8
     path_bag_robot_description = "/home/ros/humble/src/diffusion_policy/data/experiment_2/bags_kinesthetic_v0/rosbag_00/"
 
     payload = torch.load(open(ckpt_path, 'rb'), pickle_module=dill)
     cfg = payload['cfg']
-    # cfg.task.dataset.dataset_path = "/home/ros/humble/src/diffusion_policy/data/fake_puree_experiments/diffusion_policy_dataset/"
+    dataset_dir = "/home/ros/humble/src/diffusion_policy/data/fake_puree_experiments/diffusion_policy_dataset_exp2_v2_higher/"
+    cfg.task.dataset.dataset_path = dataset_dir
     cls = hydra.utils.get_class(cfg._target_)
     workspace = cls(cfg)
     workspace: BaseWorkspace
@@ -593,7 +609,7 @@ def main(args=None):
     # workspace.model.cuda()
     # print(workspace.model.normalizer["obs"].params_dict["offset"])
 
-    policy =  workspace.model
+    policy = workspace.model
     # workspace.model = workspace.model.cuda()
     # workspace.ema_model = workspace.ema_model.cuda()
     # workspace.model = torch.compile(workspace.model).cuda()
@@ -608,7 +624,7 @@ def main(args=None):
                                 n_action_steps=n_action_steps,
                                 path_bag_robot_description=path_bag_robot_description,
                                 rff_encoder=dataset.rff_encoder,
-                                mass_goal=2.2,
+                                mass_goal=1000,  # TODO: not supposed to be taken into account now.
                                 dataset=dataset,
                                 ),
         ]

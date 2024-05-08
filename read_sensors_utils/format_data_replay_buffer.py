@@ -89,12 +89,13 @@ class ImageWithTimestamp:
     timestamp: float
 
 
-def convert_image(cv_bridge: CvBridge, msg_ros, is_depth=False, side_size=400):
+def convert_image(cv_bridge: CvBridge, msg_ros, is_depth=False, side_size=(200, 400)):
     msg_fmt = "passthrough"
     if is_depth:
         img_np = cv_bridge.imgmsg_to_cv2(msg_ros)
     else:
         img_np = cv_bridge.compressed_imgmsg_to_cv2(msg_ros, "passthrough")
+        # print(img_np.shape)
     # print(msg_ros.header) 
     # img_np = cv_bridge.imgmsg_to_cv2(msg_ros, desired_encoding='32FC1')
 
@@ -124,12 +125,13 @@ def convert_image(cv_bridge: CvBridge, msg_ros, is_depth=False, side_size=400):
         img_np = np.concatenate([img_np, img_np, img_np], axis=-1)
 
     # print("IMG NP Shape", img_np.shape)
-    middle_width = img_np.shape[0] // 2
-    middle_height = img_np.shape[1] // 2
-    img_np = img_np[middle_width - (side_size // 2):middle_width + (side_size // 2), middle_height - (side_size // 2):middle_height + (side_size // 2)]
+    middle_height = 100
+    # print(middle_height)
+    middle_width = img_np.shape[1] // 2 + 50
+    img_np = img_np[middle_height - (side_size[0] // 2):middle_height + (side_size[0] // 2), middle_width - (side_size[1] // 2):middle_width + (side_size[1] // 2)]
     # img_np = img_np[250:1050, 0:800]
     # print("IMG, depth", np.max(img_np), np.min(img_np), is_depth, img_np.dtype)
-    img_np = cv2.resize(img_np, (240, 240), interpolation=cv2.INTER_AREA)
+    img_np = cv2.resize(img_np, (240, 120), interpolation=cv2.INTER_AREA)
     return img_np
 
 
@@ -297,31 +299,24 @@ def treat_folder(path_load, path_save, index_episode, mass):
         # else:
         #     is_color = True
 
-
+        # TODO: put back
         make_video(data_img[key], name=str(_path_folder / name_file), fps=fps_dict[key], is_color=True)
 
+        _path_numpy = path_save / "numpy" / str(index_episode)
+        _path_numpy.mkdir(exist_ok=True, parents=True)
+        name_numpy_file = f"{index_camera}.npy"
+
+        np.save(str(_path_numpy / name_numpy_file), data_img[key][0].img_np)
+
     print("Get End-effector")
-    # target_end_effector_poses = parser.get_messages("/cartesian_control")
     robot_states = parser.get_messages("/franka_robot_state_broadcaster/robot_state")
     print("robot states", len(robot_states))
 
-    # all_times_joint_states, all_end_effector_pos = collect_data_from_messages(joint_states, start_time, transform_fn=functools.partial(end_effector_calculator, _kdl=kdl))  # TODO
     all_times_joint_states, all_end_effector_pos = collect_data_from_messages(
         robot_states,
         start_time,
         transform_fn=lambda robot_state: end_effector_calculator(command_1=np.asarray(robot_state.q), _kdl=kdl),
-    )  # TODO
-
-    # all_times_cartesian_commands, all_end_effector_targets = collect_data_from_messages(target_end_effector_poses, start_time, transform_fn=lambda x: np.asarray(x.data))
-    # if len(all_end_effector_targets) == 0:
-    #     print("*** ERROR while reading target data, now using joints states data...")
-    #     all_times_cartesian_commands = all_times_joint_states[1:]
-    #     all_end_effector_targets = all_end_effector_pos[1:]
-    #
-    #     all_times_joint_states = all_times_joint_states[:-1]
-    #     all_end_effector_pos = all_end_effector_pos[:-1]
-
-    # target_end_effector_pos_interpolated = interpolate(all_times_cartesian_commands, all_end_effector_targets, timestamps_interpolation)
+    )
 
     # Interpolating all EEF poses and THEN defining the target EEF poses
     current_eef_pos_interpolated = interpolate(all_times_joint_states, all_end_effector_pos, timestamps_interpolation)
@@ -330,21 +325,6 @@ def treat_folder(path_load, path_save, index_episode, mass):
     current_eef_pos_interpolated = current_eef_pos_interpolated[:-1]
 
     print("Creating final data")
-
-    # for key, value in data_img.items():
-    #     array_img, array_timestamps = convert_to_arrays(value)
-    #     data_img[key] = array_img
-
-    # # testing compression video.
-    # import zarr
-    #
-    # register_codec(Jpeg2k)
-    #
-    # this_compressor = Jpeg2k(level=50)
-    # print("Shapes", data_img["azure_06"].shape, (1, *data_img["azure_06"].shape[1:]), target_end_effector_pos_interpolated.shape)
-    # z = zarr.array(data_img["azure_06"], chunks=(1, *data_img["azure_06"].shape[1:]), compressor=this_compressor, dtype=np.uint8)
-    # print(z.info)
-
     # saving array actions
     _path_folder = path_save / "actions" / str(index_episode)
     _path_folder.mkdir(exist_ok=True, parents=True)
@@ -360,8 +340,9 @@ def treat_folder(path_load, path_save, index_episode, mass):
     _path_annotations = _path_folder / NAME_ANNOTATIONS
     _path_save_interpolated = _path_folder / NAME_INTERPOLATED_ANNOTATIONS
     _pass_mass = _path_folder / NAME_MASS_TXT
-    with open(_pass_mass, 'w') as f:
-        f.write(str(mass))
+    if mass is not None:
+        with open(_pass_mass, 'w') as f:
+            f.write(str(mass))
     if _path_annotations.exists():
         print(f"{NAME_ANNOTATIONS} exists, generating {NAME_INTERPOLATED_ANNOTATIONS}...")
         annotations = np.load(_path_annotations)
@@ -374,26 +355,38 @@ def read_masses_csv(path_csv):
     import pandas as pd
     df = pd.read_csv(str(path_csv))
     dict_masses_per_index = dict()
+    df_index = df["index"]
+    df_mass = df["mass"]
     for index_row in range(len(df)):
-        dict_masses_per_index[int(df.iloc[index_row, 0])] = float(df.iloc[index_row, 1])
+        dict_masses_per_index[int(df_index[index_row])] = float(df_mass[index_row])
     return dict_masses_per_index
 
 
 def main():
-    PATH_TO_LOAD = pathlib.Path("/home/ros/humble/src/diffusion_policy/data/experiment_2/bags_kinesthetic_v2/").absolute()
-    PATH_SAVE = pathlib.Path("/home/ros/humble/src/diffusion_policy/data/fake_puree_experiments/diffusion_policy_dataset_exp2_v2/").absolute()
+    PATH_TO_LOAD = pathlib.Path("/home/ros/humble/src/project_shokunin/shokunin_common/rl/scooping_agent/puree_agent/bags_parameterized_motion/").absolute()
+    PATH_SAVE = pathlib.Path("/home/ros/humble/src/project_shokunin/shokunin_common/rl/scooping_agent/puree_agent/dataset_parameterized_motion/").absolute()
     
-    PATH_MASSES_CSV = PATH_TO_LOAD / "masses_per_demo.csv"
-    masses_per_demo = read_masses_csv(PATH_MASSES_CSV)
+    PATH_MASSES_CSV = PATH_TO_LOAD / "data.csv"
+    OVERRIDE = True
 
     PATH_SAVE.mkdir(exist_ok=True, parents=True)
     rosbag_paths = [file for file in PATH_TO_LOAD.iterdir() if file.name.startswith("rosbag")]
+
+    masses_per_demo = read_masses_csv(PATH_MASSES_CSV)
+
     for file in PATH_TO_LOAD.iterdir():
         print(file)
     print(rosbag_paths)
-    for index, rosbag_paths in enumerate(sorted(rosbag_paths)):
+
+    sorting_fn = lambda x: int(x.name.split("_")[1])
+
+    for index, rosbag_paths in enumerate(sorted(rosbag_paths, key=sorting_fn)):
         print("----------------------------------------------------------------------------------------")
         print(f"Treating folder {rosbag_paths}")
+        print(PATH_SAVE / str(index))
+        if not OVERRIDE and (PATH_SAVE / 'numpy' / str(index)).exists():
+            print(f"Skipping as {PATH_SAVE / rosbag_paths.name} exists")
+            continue
         treat_folder(path_load=rosbag_paths.absolute(),
                      path_save=PATH_SAVE,
                      index_episode=index,

@@ -6,6 +6,7 @@ from tqdm import tqdm
 
 from diffusion_policy.common.pytorch_util import dict_apply
 from diffusion_policy.dataset.real_franka_image_dataset import RealFrankaImageDataset
+from diffusion_policy.workspace.train_diffusion_unet_hybrid_workspace import TrainDiffusionUnetHybridWorkspace
 
 # use line-buffering for both stdout and stderr
 sys.stdout = open(sys.stdout.fileno(), mode='w', buffering=1)
@@ -99,23 +100,25 @@ def get_one_episode(dataset: RealFrankaImageDataset, mass, index_episode: int = 
         mass_obs = dataset.rff_encoder.encode_vector(mass_v)
         neutral_mass_obs = dataset.rff_encoder.encode_vector(neutral_mass_v)
 
+    # TODO
     camera_0_rgb = replay_buffer["camera_1"][index_start:index_end]
-    camera_0_depth = replay_buffer["camera_0"][index_start:index_end]
-    camera_0_data = RealFrankaImageDataset.concatenate_rgb_depth(camera_0_rgb, camera_0_depth)
+    # camera_0_depth = replay_buffer["camera_0"][index_start:index_end]
+    # camera_0_data = RealFrankaImageDataset.concatenate_rgb_depth(camera_0_rgb, camera_0_depth)\
+    camera_0_data = camera_0_rgb
     camera_0_data = RealFrankaImageDataset.moveaxis_rgbd(camera_0_data)
     camera_0_data = RealFrankaImageDataset.rgbd_255_to_1(camera_0_data)
 
     return {
         "obs": {  # TODO: update this too
-            "camera_0": camera_0_data,
+            "camera_1": camera_0_data,
             "eef": replay_buffer["eef"][index_start:index_end],
-            # "mass": mass_obs,
+            "optimize_reward_boolean": np.ones(shape=(camera_0_data.shape[0])),
         },
         "action": replay_buffer['action'][index_start:index_end],
         "neutral_obs": {  # TODO: update this too
-            "camera_0": camera_0_data,
+            "camera_1": camera_0_data,
             "eef": replay_buffer["eef"][index_start:index_end],
-            # "mass": neutral_mass_obs,
+            "optimize_reward_boolean": np.zeros(shape=(camera_0_data.shape[0])),
         },
     }
 
@@ -130,24 +133,38 @@ def _get_mass_encoding(mass, rff_encoder):
 
 
 def main():
-    ckpt_path = "/home/ros/humble/src/diffusion_policy/data/outputs/2024.04.04/19.35.49_train_diffusion_unet_image_franka_kitchen_lowdim/checkpoints/latest.ckpt"
-    dataset_dir = "/home/ros/humble/src/diffusion_policy/data/fake_puree_experiments/diffusion_policy_dataset_exp2_v2/"
+    # ckpt_path = "/home/ros/humble/src/diffusion_policy/data/outputs/2024.04.08/16.24.23_train_diffusion_unet_image_franka_kitchen_lowdim/checkpoints/epoch=0280-mse_error_val=0.000.ckpt"  # with images
+    # ckpt_path = "/home/ros/humble/src/diffusion_policy/data/outputs/2024.04.09/18.02.53_train_diffusion_unet_image_franka_kitchen_lowdim/checkpoints/epoch=1530-mse_error_val=0.000.ckpt"  # with images + mass
+    # ckpt_path = "/home/ros/humble/src/diffusion_policy/data/outputs/2024.04.10/18.53.16_train_diffusion_unet_image_franka_kitchen_lowdim/checkpoints/latest.ckpt"  # with images + mass + critic
+    # ckpt_path = "/home/ros/humble/src/diffusion_policy/data/outputs/2024.04.12/18.08.50_train_diffusion_unet_image_franka_kitchen_lowdim/checkpoints/epoch=1555-mse_error_val=0.000.ckpt"  # with images + mass + critic + classifier input.
+    ckpt_path = "/home/ros/humble/src/diffusion_policy/data/outputs/2024.04.18/19.45.38_train_diffusion_unet_image_franka_kitchen_lowdim/checkpoints/latest.ckpt"  # with images + mass + critic + classifier input + GC
+    dataset_dir = "/home/ros/humble/src/diffusion_policy/data/fake_puree_experiments/diffusion_policy_dataset_exp2_v2_higher/"
+    path_classifier = "/home/ros/humble/src/diffusion_policy/data/outputs/classifier/2024.04.19/12.00.24_train_diffusion_unet_image_franka_kitchen_lowdim/classifier.pt"  # TODO
+
 
     payload = torch.load(open(ckpt_path, 'rb'), pickle_module=dill)
     cfg = payload['cfg']
-    # cfg.task.dataset.dataset_path = dataset_dir
+    cfg.task.dataset.dataset_path = dataset_dir
     dataset: RealFrankaImageDataset = hydra.utils.instantiate(cfg.task.dataset)
     cls = hydra.utils.get_class(cfg._target_)
     workspace = cls(cfg)
-    workspace: BaseWorkspace
+    workspace: TrainDiffusionUnetHybridWorkspace
     workspace.load_payload(payload, exclude_keys=None, include_keys=None) # TODO
     policy = workspace.model
+    critic = workspace.critic
     policy = policy.cuda()
     policy = policy.eval()
+    critic = critic.cuda()
+    critic = critic.eval()
+
+    workspace.load_classifier(path_classifier)
+
+    workspace.classifier = workspace.classifier.cuda()
+    workspace.classifier = workspace.classifier.eval()
 
     # list_episodes = get_dataset(dataset_dir)
-    mass=2.2
-    index_episode=0
+    mass = 2.5
+    index_episode = 12
     one_episode = get_one_episode(dataset, mass=mass, index_episode=index_episode)
 
     sequence_observations = one_episode["obs"]
@@ -156,10 +173,10 @@ def main():
 
     n_action_steps = 8
     n_latency_steps = 0
-    n_obs_steps = 2
+    n_obs_steps = 4  # TODO
 
     # index_start = 60  # TODO - Test with several
-    num_obs = len(sequence_observations["camera_0"])
+    num_obs = len(sequence_observations["eef"])
 
     print("length seq", num_obs)
     print("sequence_observations", sequence_observations["eef"][0])
@@ -176,28 +193,27 @@ def main():
     path_debug = pathlib.Path(images_debug)
     path_debug.mkdir(exist_ok=True)
 
-    images = sequence_observations["camera_0"]
+    # todo
+    images = sequence_observations["camera_1"]
 
-    for i in range(num_obs):
-        plt.clf()
-        plt.cla()
-        img = images[i]
-        img = img[:3] # Taking only RGB
-        # img = np.repeat(img, 3, axis=0)
-        print("image", i, images[i])
-        img = np.moveaxis(img, 0, -1)
-        plt.imshow(img)
-        plt.savefig(path_debug / f"image_{i}.png")
-        plt.clf()
-        plt.cla()
-        
-
+    # for i in range(num_obs):
+    #     plt.clf()
+    #     plt.cla()
+    #     img = images[i]
+    #     img = img[:3] # Taking only RGB
+    #     # img = np.repeat(img, 3, axis=0)
+    #     print("image", i, images[i])
+    #     img = np.moveaxis(img, 0, -1)
+    #     plt.imshow(img)
+    #     plt.savefig(path_debug / f"image_{i}.png")
+    #     plt.clf()
+    #     plt.cla()
 
     for index_start in range(n_obs_steps - 1, num_obs - n_obs_steps - n_action_steps, n_action_steps):
         print(index_start)
         stacked_obs = dict_apply(sequence_observations, lambda x: x[index_start - n_obs_steps + 1:index_start + 1])
         stacked_neutral_obs = dict_apply(sequence_neutral_observations, lambda x: x[index_start - n_obs_steps + 1:index_start + 1])
-        print("stacked obs", np.max(stacked_obs["camera_0"]), stacked_obs["camera_0"])
+        # print("stacked obs", np.max(stacked_obs["camera_0"]), stacked_obs["camera_0"])
         initial_eef = sequence_actions[index_start]
 
         with torch.no_grad():
@@ -209,9 +225,19 @@ def main():
                                   lambda x: torch.from_numpy(x).cuda())
             neutral_obs_dict = dict_apply(np_neutral_obs_dict,
                                           lambda x: torch.from_numpy(x).cuda())
-            
-            # action_dict = policy.predict_action(obs_dict, neutral_obs_dict) TODO
-            action_dict = policy.predict_action(obs_dict)
+
+            # add 'scooping_accomplished' field
+            obs_dict = workspace.add_scooping_accomplished_to_batch_from_classifier(obs_dict,
+                                                                                    normalizer=policy.normalizer,
+                                                                                    no_batch=False)
+            neutral_obs_dict = workspace.add_scooping_accomplished_to_batch_from_classifier(neutral_obs_dict,
+                                                                                            normalizer=policy.normalizer,
+                                                                                            no_batch=False)
+
+            action_dict = policy.predict_action_from_several_samples(obs_dict, critic, neutral_obs_dict)
+            # action_dict = policy.predict_action_from_several_samples(neutral_obs_dict, critic,)  # no classification guided sampling if reward depends of mass.
+            # action_dict = policy.predict_action(obs_dict, neutral_obs_dict)
+            # action_dict = policy.predict_action(neutral_obs_dict)
             np_action_dict = dict_apply(action_dict,
                                         lambda x: x.detach().to('cpu').numpy())
 
@@ -237,7 +263,7 @@ def main():
 
 
 
-    plt.savefig(f"predictions_{mass=}_{index_episode=}.png")
+    plt.savefig(f"predictions_{index_episode=}_{mass=}.png")
     # plt.show()
 
 if __name__ == '__main__':

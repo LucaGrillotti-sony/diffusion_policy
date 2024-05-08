@@ -19,23 +19,24 @@ from diffusion_policy.codecs.imagecodecs_numcodecs import (
     register_codecs,
     Jpeg2k
 )
+
 register_codecs()
 
 
 def real_data_to_replay_buffer(
-        dataset_path: str, 
-        out_store: Optional[zarr.ABSStore]=None, 
-        out_resolutions: Union[None, tuple, Dict[str,tuple]]=None, # (width, height)
-        lowdim_keys: Optional[Sequence[str]]=None,
-        image_keys: Optional[Sequence[str]]=None,
-        lowdim_compressor: Optional[numcodecs.abc.Codec]=None,
-        image_compressor: Optional[numcodecs.abc.Codec]=None,
-        n_decoding_threads: int=min(multiprocessing.cpu_count(), 16),
-        n_encoding_threads: int=min(multiprocessing.cpu_count(), 16),
-        max_inflight_tasks: int=min(multiprocessing.cpu_count(), 16) * 5,
-        verify_read: bool=True,
-        dt: int=None,
-        ) -> ReplayBuffer:
+        dataset_path: str,
+        out_store: Optional[zarr.ABSStore] = None,
+        out_resolutions: Union[None, tuple, Dict[str, tuple]] = None,  # (width, height)
+        lowdim_keys: Optional[Sequence[str]] = None,
+        image_keys: Optional[Sequence[str]] = None,
+        lowdim_compressor: Optional[numcodecs.abc.Codec] = None,
+        image_compressor: Optional[numcodecs.abc.Codec] = None,
+        n_decoding_threads: int = min(multiprocessing.cpu_count(), 16),
+        n_encoding_threads: int = min(multiprocessing.cpu_count(), 16),
+        max_inflight_tasks: int = min(multiprocessing.cpu_count(), 16) * 5,
+        verify_read: bool = True,
+        dt: int = None,
+) -> ReplayBuffer:
     """
     It is recommended to use before calling this function
     to avoid CPU oversubscription
@@ -65,7 +66,7 @@ def real_data_to_replay_buffer(
     in_video_dir = input.joinpath('videos')
     assert in_zarr_path.is_dir()
     assert in_video_dir.is_dir()
-    
+
     in_replay_buffer = ReplayBuffer.create_from_path(str(in_zarr_path.absolute()), mode='r')
 
     # save lowdim data to single chunk
@@ -82,8 +83,8 @@ def real_data_to_replay_buffer(
         keys=lowdim_keys,
         chunks=chunks_map,
         compressors=compressor_map
-        )
-    
+    )
+
     # worker function
     def put_img(zarr_arr, zarr_idx, img):
         try:
@@ -95,9 +96,8 @@ def real_data_to_replay_buffer(
         except Exception as e:
             return False
 
-    
     n_cameras = 0
-    camera_idxs = set() 
+    camera_idxs = set()
     if image_keys is not None:
         n_cameras = len(image_keys)
         camera_idxs = set(int(x.split('_')[-1]) for x in image_keys)
@@ -107,7 +107,7 @@ def real_data_to_replay_buffer(
         episode_video_paths = sorted(episode_video_dir.glob('*.mp4'), key=lambda x: int(x.stem))
         camera_idxs = set(int(x.stem) for x in episode_video_paths)
         n_cameras = len(episode_video_paths)
-    
+
     n_steps = in_replay_buffer.n_steps
     episode_starts = in_replay_buffer.episode_ends[:] - in_replay_buffer.episode_lengths[:]
     episode_lengths = in_replay_buffer.episode_lengths
@@ -116,7 +116,7 @@ def real_data_to_replay_buffer(
         timestamps = in_replay_buffer['timestamp'][:]
         dt = timestamps[1] - timestamps[0]
 
-    with tqdm(total=n_steps*n_cameras, desc="Loading image data", mininterval=1.0) as pbar:
+    with tqdm(total=n_steps * n_cameras, desc="Loading image data", mininterval=1.0) as pbar:
         # one chunk per thread, therefore no synchronization needed
         with concurrent.futures.ThreadPoolExecutor(max_workers=n_encoding_threads) as executor:
             futures = set()
@@ -162,8 +162,8 @@ def real_data_to_replay_buffer(
                         ow, oh = out_img_res
                         _ = out_replay_buffer.data.require_dataset(
                             name=arr_name,
-                            shape=(n_steps,oh,ow,3),
-                            chunks=(1,oh,ow,3),
+                            shape=(n_steps, oh, ow, 3),
+                            chunks=(1, oh, ow, 3),
                             compressor=image_compressor,
                             dtype=np.uint8
                         )
@@ -177,16 +177,16 @@ def real_data_to_replay_buffer(
                             img_transform=image_tf,
                             thread_type='FRAME',
                             thread_count=n_decoding_threads
-                        )):
+                    )):
                         if len(futures) >= max_inflight_tasks:
                             # limit number of inflight tasks
-                            completed, futures = concurrent.futures.wait(futures, 
-                                return_when=concurrent.futures.FIRST_COMPLETED)
+                            completed, futures = concurrent.futures.wait(futures,
+                                                                         return_when=concurrent.futures.FIRST_COMPLETED)
                             for f in completed:
                                 if not f.result():
                                     raise RuntimeError('Failed to encode image!')
                             pbar.update(len(completed))
-                        
+
                         global_idx = episode_start + step_idx
                         futures.add(executor.submit(put_img, arr, global_idx, frame))
 
@@ -228,22 +228,27 @@ def create_zarr_action_dataset(dataset_path: str):
         if not _file_path_eef.exists():
             print(f"{_file_path_eef} does not exist, skipping...")
             continue
-        # if not _file_path_annotations.exists():
-        #     print(f"{_file_path_annotations} does not exist, skipping...")
-        #     continue
+        if not _file_path_annotations.exists():
+            print(f"{_file_path_annotations} does not exist, skipping...")
+            continue
         if not _file_path_mass.exists():
             print(f"{_file_path_mass} does not exist, skipping...")
             continue
         array_actions = np.load(_file_path)
         array_eef = np.load(_file_path_eef)
-        # array_annotations = np.load(_file_path_annotations)
+        array_annotations = np.load(_file_path_annotations)
         mass_scooped = np.loadtxt(_file_path_mass).item()
         array_masses = np.full((array_eef.shape[0],), fill_value=mass_scooped)
+
+        if len(array_annotations) > len(array_masses):
+            array_annotations = array_annotations[:len(array_masses)]
+
+        print(array_actions.shape, array_eef.shape, array_annotations.shape, array_masses.shape)
 
         data_dict = {
             'action': array_actions,
             'eef': array_eef,
-            # 'label': array_annotations,
+            'label': array_annotations,
             'mass': array_masses,
         }
 
@@ -254,18 +259,18 @@ def create_zarr_action_dataset(dataset_path: str):
         )
 
 
-
-
 def test_real_data_conversion():
     # dataset_path = pathlib.Path("/home/lucagrillotti/ros/humble/src/diffusion_policy/data/test_dataset/")
-    dataset_path = pathlib.Path("/home/ros/humble/src/diffusion_policy/data/fake_puree_experiments/diffusion_policy_dataset_exp2_v2/")
+    dataset_path = pathlib.Path(
+        "/home/lucagrillotti/ros/humble/src/project_shokunin/shokunin_common/rl/scooping_agent/puree_agent/dataset_parameterized_motion")
     output_path = dataset_path / "replay_buffer_final.zarr.zip"
     assert output_path.suffix == ".zip"
     cv2.setNumThreads(1)
     with threadpool_limits(1):
         create_zarr_action_dataset(dataset_path=dataset_path)
         replay_buffer = real_data_to_replay_buffer(dataset_path=dataset_path,
-                                                   image_keys=tuple(f"{index}" for index in range(2)), # 2 because there are 3 cameras
+                                                   image_keys=tuple(f"{index}" for index in range(2)),
+                                                   # 2 because there are 3 cameras
                                                    dt=0.1,
                                                    )
 
