@@ -107,13 +107,13 @@ policy:
         shape:
          - 7
         type: low_dim
-      mass:
-        shape:
-          - 256 # after RFF
-        type: low_dim
       scooping_accomplished:
         shape:
           - 3
+        type: low_dim
+      optimize_reward_boolean:
+        shape:
+          - 1
         type: low_dim
   noise_scheduler:
     _target_: diffusers.schedulers.scheduling_ddim.DDIMScheduler
@@ -158,10 +158,6 @@ critic:
       eef:
         shape:
           - 7
-        type: low_dim
-      mass:
-        shape:
-          - 256 # after RFF
         type: low_dim
       scooping_accomplished:
         shape:

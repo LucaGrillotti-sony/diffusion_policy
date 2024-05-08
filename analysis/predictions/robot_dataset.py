@@ -112,13 +112,13 @@ def get_one_episode(dataset: RealFrankaImageDataset, mass, index_episode: int = 
         "obs": {  # TODO: update this too
             "camera_1": camera_0_data,
             "eef": replay_buffer["eef"][index_start:index_end],
-            "mass": mass_obs,
+            "optimize_reward_boolean": np.ones(shape=(camera_0_data.shape[0])),
         },
         "action": replay_buffer['action'][index_start:index_end],
         "neutral_obs": {  # TODO: update this too
             "camera_1": camera_0_data,
             "eef": replay_buffer["eef"][index_start:index_end],
-            "mass": neutral_mass_obs,
+            "optimize_reward_boolean": np.zeros(shape=(camera_0_data.shape[0])),
         },
     }
 
@@ -137,9 +137,9 @@ def main():
     # ckpt_path = "/home/ros/humble/src/diffusion_policy/data/outputs/2024.04.09/18.02.53_train_diffusion_unet_image_franka_kitchen_lowdim/checkpoints/epoch=1530-mse_error_val=0.000.ckpt"  # with images + mass
     # ckpt_path = "/home/ros/humble/src/diffusion_policy/data/outputs/2024.04.10/18.53.16_train_diffusion_unet_image_franka_kitchen_lowdim/checkpoints/latest.ckpt"  # with images + mass + critic
     # ckpt_path = "/home/ros/humble/src/diffusion_policy/data/outputs/2024.04.12/18.08.50_train_diffusion_unet_image_franka_kitchen_lowdim/checkpoints/epoch=1555-mse_error_val=0.000.ckpt"  # with images + mass + critic + classifier input.
-    ckpt_path = "/home/ros/humble/src/diffusion_policy/data/outputs/2024.04.15/20.14.56_train_diffusion_unet_image_franka_kitchen_lowdim/checkpoints/epoch=0485-mse_error_val=0.000.ckpt"  # with images + mass + critic + classifier input + GC
+    ckpt_path = "/home/ros/humble/src/diffusion_policy/data/outputs/2024.04.18/19.45.38_train_diffusion_unet_image_franka_kitchen_lowdim/checkpoints/latest.ckpt"  # with images + mass + critic + classifier input + GC
     dataset_dir = "/home/ros/humble/src/diffusion_policy/data/fake_puree_experiments/diffusion_policy_dataset_exp2_v2_higher/"
-    path_classifier = "/home/ros/humble/src/diffusion_policy/data/outputs/classifier/2024.04.15/19.25.18_train_diffusion_unet_image_franka_kitchen_lowdim/classifier.pt"
+    path_classifier = "/home/ros/humble/src/diffusion_policy/data/outputs/classifier/2024.04.19/12.00.24_train_diffusion_unet_image_franka_kitchen_lowdim/classifier.pt"  # TODO
 
 
     payload = torch.load(open(ckpt_path, 'rb'), pickle_module=dill)

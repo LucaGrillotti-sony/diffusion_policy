@@ -246,7 +246,7 @@ class RealFrankaImageDataset(BaseImageDataset):
         obs_shape_meta = self.shape_meta["obs"]
 
         jitter = v2.ColorJitter(brightness=.5, hue=.3)
-        random_shift_fn = DataAugmentationRandomShifts(pad=obs_shape_meta["camera_1"].shape[1] // 20).forward
+        random_shift_fn = DataAugmentationRandomShifts(pad=0).forward
 
         augment_data_fn = toolz.compose(random_shift_fn, jitter)
         return augment_data_fn
@@ -309,6 +309,8 @@ class RealFrankaImageDataset(BaseImageDataset):
         # print("initial_eef", all_relative_eef[0])
 
         normalizer['action'] = SingleFieldLinearNormalizer.create_fit(self.replay_buffer['action'])
+
+        normalizer["optimize_reward_boolean"] = SingleFieldLinearNormalizer.create_identity()
 
         # obs
         for key in self.lowdim_keys:
@@ -425,7 +427,9 @@ class RealFrankaImageDataset(BaseImageDataset):
             obs_dict['mass'] = self.encode_mass(obs_dict['mass'])
             next_obs_dict['mass'] = self.encode_mass(next_obs_dict['mass'])
 
-
+        obs_dict["optimize_reward_boolean"] = np.random.choice([0., 1.], size=(1, 1), p=[0.25, 0.75])
+        obs_dict["optimize_reward_boolean"] = np.repeat(obs_dict["optimize_reward_boolean"], repeats=4, axis=0)
+        next_obs_dict["optimize_reward_boolean"] = obs_dict["optimize_reward_boolean"]
 
         # handle latency by dropping first n_latency_steps action
         # observations are already taken care of by T_slice

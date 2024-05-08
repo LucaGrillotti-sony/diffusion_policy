@@ -82,8 +82,10 @@ class EnvControlWrapperJTC:
             {
                 'eef': gym.spaces.Box(-8, 8, shape=(7,), dtype=np.float32),
                 'camera_1': gym.spaces.Box(0, 1, shape=(3, 240, 240), dtype=np.float32),  # TODO 3 -> 4, camera_1 -> camera_0
-                'mass': gym.spaces.Box( -1, 1, shape=(256,), dtype=np.float32),
-                'mass_neutral': gym.spaces.Box( -1, 1, shape=(256,), dtype=np.float32),
+                'optimize_reward_boolean': gym.spaces.Box(0, 1, shape=(1,), dtype=np.float32),
+                'optimize_reward_boolean_neutral': gym.spaces.Box(0, 1, shape=(1,), dtype=np.float32),
+                # 'mass': gym.spaces.Box( -1, 1, shape=(256,), dtype=np.float32),
+                # 'mass_neutral': gym.spaces.Box( -1, 1, shape=(256,), dtype=np.float32),
             }
         )
         self.action_space = gym.spaces.Box(
@@ -102,7 +104,9 @@ class EnvControlWrapperJTC:
         # start with the initial position as a goal
         # self.initial_eef = RealFrankaImageDataset.FIXED_INITIAL_EEF
         initial_eef = np.asarray(
-            [0.40996018, 0.03893278, 0.45212647, 0.0673149, 0.96574436, 0.2338243, 0.03675712]
+            # [0.40996018, 0.03893278, 0.45212647, 0.0673149, 0.96574436, 0.2338243, 0.03675712],
+            # [0.45324574, 0.08714732, 0.38849032, 0.07325575, 0.96784382, 0.2403741, -0.01149938],
+            [0.36365472, 0.05738774, 0.41780945, 0.08601881, 0.97341422, 0.19614856, 0.08118657]
         )  # TODO: deal with initial eef
         self.initial_eef = self.convert_eef_to_kdl(initial_eef)  # PyKDL coordinate: tr=[x,y,z] and qu = [x,y,z,w]
 
@@ -391,8 +395,10 @@ class EnvControlWrapperWithCamerasJTC(EnvControlWrapperJTC):
         return {
             'eef': pos_end_effector.astype(np.float32),
             'camera_1': camera_0_full_data.astype(np.float32),  # TODO camera_1 -> camera_0
-            'mass': self.mass_encoding.astype(np.float32),
-            'mass_neutral': self.mass_encoding_neutral.astype(np.float32),
+            'optimize_reward_boolean': np.ones(shape=(1,)),
+            'optimize_reward_boolean_neutral': np.zeros(shape=(1,)),
+            # 'mass': self.mass_encoding.astype(np.float32),
+            # 'mass_neutral': self.mass_encoding_neutral.astype(np.float32),
         }
 
     def _bgr_to_rgb(self, data):
@@ -563,7 +569,7 @@ class DiffusionController(NodeParameterMixin,
         # jac
 
 
-        keys_obs = ("camera_1", "eef", "mass") # TODO
+        keys_obs = ("camera_1", "eef", "mass", "optimize_reward_boolean") # TODO
         # keys_obs = ("camera_1", "eef", )  # TODO: camera_1 -> camera_0
         # keys_obs = ("eef",)
 
@@ -575,9 +581,10 @@ class DiffusionController(NodeParameterMixin,
                 key: value
                 for key, value in stacked_obs.items()
             }
-            stacked_neutral_obs["mass"] = stacked_neutral_obs["mass_neutral"]
-            del stacked_obs["mass_neutral"]
-            del stacked_neutral_obs["mass_neutral"]
+            # stacked_neutral_obs["mass"] = stacked_neutral_obs["mass_neutral"]
+            stacked_neutral_obs["optimize_reward_boolean"] = stacked_neutral_obs["optimize_reward_boolean_neutral"]
+            del stacked_obs["optimize_reward_boolean_neutral"]
+            del stacked_neutral_obs["optimize_reward_boolean_neutral"]
 
             stacked_obs = dict_apply(stacked_obs, lambda x: x.reshape(1, *x.shape))
             stacked_neutral_obs = dict_apply(stacked_neutral_obs, lambda x: x.reshape(1, *x.shape))
@@ -603,19 +610,19 @@ class DiffusionController(NodeParameterMixin,
             # obs_dict["scooping_accomplished"] = torch.zeros_like(obs_dict["scooping_accomplished"])
             # neutral_obs_dict["scooping_accomplished"] = torch.zeros_like(neutral_obs_dict["scooping_accomplished"])
             #
-            # obs_dict["scooping_accomplished"][..., 1] = 1.
-            # neutral_obs_dict["scooping_accomplished"][..., 1] = 1.
+            # obs_dict["scooping_accomplished"][..., 0] = 1.
+            # neutral_obs_dict["scooping_accomplished"][..., 0] = 1.
 
             print("scooping achieved", obs_dict["scooping_accomplished"])
 
 
             # action_dict = self.policy.predict_action_from_several_samples(neutral_obs_dict, critic_network=self.critic)
-            action_dict = self.policy.predict_action_from_several_samples(obs_dict, critic_network=self.critic, neutral_obs_dict=neutral_obs_dict)
-            # action_dict = self.policy.predict_action(obs_dict)
+            # action_dict = self.policy.predict_action_from_several_samples(obs_dict, critic_network=self.critic, neutral_obs_dict=neutral_obs_dict)
+            action_dict = self.policy.predict_action(obs_dict)
             np_action_dict = dict_apply(action_dict,
                                         lambda x: x.detach().to('cpu').numpy())
 
-            absolute_actions_eef = np_action_dict['action']
+            absolute_actions_eef = np_action_dict['action'][:, 1:]
 
             metrics = np_action_dict['metrics']
             wandb.log(metrics)
@@ -626,7 +633,7 @@ class DiffusionController(NodeParameterMixin,
         print("absolute_actions_eef", absolute_actions_eef)
         action_joints = self.env.convert_eef_to_joints(absolute_actions_eef, joints_init=jnts_obs, convert_eef_to_kdl_convention=True)
         times_joints_seq = self.env.add_times_to_joints_seq(action_joints, frequency=5)  # TODO: frequency
-        times_joints_seq = self.env.time_multiply(times_joints_seq, time_multiplier=0.5)  # TODO: parametrize
+        times_joints_seq = self.env.time_multiply(times_joints_seq, time_multiplier=1.)  # TODO: parametrize
         times_joints_seq = self.env.time_offset(times_joints_seq, time_offset=0.5)  # TODO: parametrize
         times_joints_seq = self.env.interpolate_joints_seq(times_joints_seq, interpolate_frequency=200, initial_jnt=jnts_obs)  # TODO: parametrize
         duration = times_joints_seq[-1][0]
@@ -677,9 +684,10 @@ def main(args=None):
     # ckpt_path = "/home/ros/humble/src/diffusion_policy/data/outputs/2024.04.08/16.24.23_train_diffusion_unet_image_franka_kitchen_lowdim/checkpoints/epoch=0280-mse_error_val=0.000.ckpt"  # with images, n_obs_frames_stack = 4
     # ckpt_path = "/home/ros/humble/src/diffusion_policy/data/outputs/2024.04.09/18.02.53_train_diffusion_unet_image_franka_kitchen_lowdim/checkpoints/epoch=1530-mse_error_val=0.000.ckpt"  # with images + mass, n_obs_frames_stack = 4
     # ckpt_path = "/home/ros/humble/src/diffusion_policy/data/outputs/2024.04.10/18.53.16_train_diffusion_unet_image_franka_kitchen_lowdim/checkpoints/latest.ckpt"  # with images + mass + critic
-    ckpt_path = "/home/ros/humble/src/diffusion_policy/data/outputs/2024.04.15/20.14.56_train_diffusion_unet_image_franka_kitchen_lowdim/checkpoints/epoch=0485-mse_error_val=0.000.ckpt"  # with images + mass + critic + classifier input + GC
+    # ckpt_path = "/home/ros/humble/src/diffusion_policy/data/outputs/2024.04.15/20.14.56_train_diffusion_unet_image_franka_kitchen_lowdim/checkpoints/epoch=0485-mse_error_val=0.000.ckpt"  # with images + mass + critic + classifier input + GC
+    ckpt_path = "/home/ros/humble/src/diffusion_policy/data/outputs/2024.04.18/19.45.38_train_diffusion_unet_image_franka_kitchen_lowdim/checkpoints/epoch=0485-mse_error_val=0.000.ckpt"  # with images + mass + critic + classifier input + GC + classification free w/ optimize_reward_boolean
     dataset_dir = "/home/ros/humble/src/diffusion_policy/data/fake_puree_experiments/diffusion_policy_dataset_exp2_v2_higher/"
-    path_classifier = "/home/ros/humble/src/diffusion_policy/data/outputs/classifier/2024.04.15/19.25.18_train_diffusion_unet_image_franka_kitchen_lowdim/classifier.pt"
+    path_classifier = "/home/ros/humble/src/diffusion_policy/data/outputs/classifier/2024.04.19/12.00.24_train_diffusion_unet_image_franka_kitchen_lowdim/classifier.pt"
 
 
     # n_obs_steps = 2 # TODO

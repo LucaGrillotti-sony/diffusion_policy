@@ -45,7 +45,7 @@ class DiffusionUnetHybridImagePolicy(BaseImagePolicy):
             obs_encoder_group_norm=False,
             eval_fixed_crop=False,
             gamma=0.99,
-            weight_classification_free_guidance_sampling=2.,
+            weight_classification_free_guidance_sampling=1.,
             # parameters passed to step
             **kwargs):
         super().__init__()
@@ -493,6 +493,9 @@ class DiffusionUnetHybridImagePolicy(BaseImagePolicy):
 
         critic_values = critic_network.get_one_critic(nactions_policy, local_cond=None, global_cond=global_cond,)
 
+        optimize_reward_boolean = batch["obs"]["optimize_reward_boolean"][:, 0]
+        critic_values = torch.flatten(critic_values) * torch.flatten(optimize_reward_boolean)
+
         loss_score = -1. * critic_values.mean()
 
         with torch.no_grad():
@@ -503,6 +506,7 @@ class DiffusionUnetHybridImagePolicy(BaseImagePolicy):
 
         alpha_coeff = self.eta_coeff_critic / mean_abs_critic_values
         loss_score = alpha_coeff * loss_score
+
 
         loss_actor = loss_diffusion + sigmoid_lagrange * loss_score
         # loss_actor = loss_diffusion
