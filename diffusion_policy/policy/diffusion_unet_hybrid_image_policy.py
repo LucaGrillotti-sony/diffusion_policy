@@ -365,7 +365,7 @@ class DiffusionUnetHybridImagePolicy(BaseImagePolicy):
             result_dict = self.predict_action(repeated_obs_dict)
         action_full_horizon = result_dict['action_pred']
         naction_full_horizon = self.normalizer['action'].normalize(action_full_horizon)
-        values_critic = critic_network.get_one_critic(naction_full_horizon, local_cond=None, global_cond=global_cond,)
+        values_critic = critic_network.get_one_critic(naction_full_horizon, batch={"obs": obs_dict},)
         values_critic = values_critic.ravel()
 
         # Selected best action at the moment
@@ -452,7 +452,7 @@ class DiffusionUnetHybridImagePolicy(BaseImagePolicy):
         # Compute critic values
         nactions_policy = self.normalizer['action'].normalize(actions_policy)
 
-        critic_values = critic_network.get_one_critic(nactions_policy, local_cond=None, global_cond=global_cond,)
+        critic_values = critic_network.get_one_critic(nactions_policy, local_cond=None, batch=batch)
 
         critic_values = torch.flatten(critic_values)
 
@@ -460,7 +460,7 @@ class DiffusionUnetHybridImagePolicy(BaseImagePolicy):
 
         with torch.no_grad():
             nactions_dataset = nactions_dataset.detach()
-            critic_values_cst = critic_network.get_one_critic(nactions_dataset, local_cond=None, global_cond=global_cond)
+            critic_values_cst = critic_network.get_one_critic(nactions_dataset, local_cond=None, batch=batch)
             critic_values_cst = critic_values_cst.detach()
             mean_abs_critic_values = torch.mean(torch.abs(critic_values_cst))
 

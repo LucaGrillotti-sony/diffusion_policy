@@ -5,47 +5,32 @@ python train.py --config-name=train_diffusion_lowdim_workspace
 """
 import collections
 import queue
-import os
-import os.path as osp
-import sys
-import time
 from typing import Dict, Sequence
-import matplotlib.pyplot as plt
 
 import dill
-
-import click
 import gym
+import hydra
+import matplotlib.pyplot as plt
 import scipy
 import torch
 import wandb
 from gym import spaces
 from hydra.core.hydra_config import HydraConfig
-from analysis.predictions.robot_dataset import get_one_episode
+from omegaconf import OmegaConf
+
 from diffusion_policy.common.pytorch_util import dict_apply
 from diffusion_policy.dataset.real_franka_image_dataset import RandomFourierFeatures, RealFrankaImageDataset
-from diffusion_policy.env_runner.real_robot_runner import RealRobot
-from diffusion_policy.policy.diffusion_guided_ddim import DDIMGuidedScheduler
 from diffusion_policy.workspace.train_diffusion_unet_hybrid_workspace import TrainDiffusionUnetHybridWorkspace
-from diffusion_policy.workspace.train_diffusion_unet_lowdim_workspace import TrainDiffusionUnetLowdimWorkspace
 from read_sensors_utils.format_data_replay_buffer import end_effector_calculator, convert_image, get_robot_description
-from read_sensors_utils.quaternion_utils import quat_library_from_ros
 
 # use line-buffering for both stdout and stderr
 # sys.stdout = open(sys.stdout.fileno(), mode='w', buffering=1)
 # sys.stderr = open(sys.stderr.fileno(), mode='w', buffering=1)
 
-import hydra
-from omegaconf import OmegaConf
-import pathlib
-from diffusion_policy.workspace.base_workspace import BaseWorkspace
-
 # allows arbitrary python code execution in configs using the ${eval:''} resolver
 OmegaConf.register_new_resolver("eval", eval, replace=True)
 
 import numpy as np
-import numpy.linalg as la
-import quaternion as quat
 import rclpy
 import rclpy.node
 import rclpy.qos
@@ -55,20 +40,15 @@ from rclpy.action import ActionClient
 from rclpy.qos import QoSProfile, QoSDurabilityPolicy
 
 from srl_utilities.node2 import NodeParameterMixin, NodeTFMixin, NodeWaitMixin
-from srl_utilities.se3 import SE3, se3, se3_mat, se3_mul, se3_repr, se3_unmat, _rw2wr, lie_grad
 
-from sensor_msgs.msg import Joy, JointState, CompressedImage, Image
-from std_msgs.msg import String, Float64MultiArray, MultiArrayDimension
+from sensor_msgs.msg import JointState, CompressedImage, Image
+from std_msgs.msg import String
 from control_msgs.action import FollowJointTrajectory
 from trajectory_msgs.msg import JointTrajectoryPoint
-from franka_msgs.action import Grasp
 from cv_bridge import CvBridge
-
-import diffusion_policy.workspace.train_diffusion_unet_hybrid_workspace
 
 import PyKDL
 from kdl_solver import KDLSolver
-import copy
 
 
 class EnvControlWrapperJTC:
@@ -82,8 +62,6 @@ class EnvControlWrapperJTC:
             {
                 'eef': gym.spaces.Box(-8, 8, shape=(7,), dtype=np.float32),
                 'camera_1': gym.spaces.Box(0, 1, shape=(3, 240, 240), dtype=np.float32),  # TODO 3 -> 4, camera_1 -> camera_0
-                # 'mass': gym.spaces.Box( -1, 1, shape=(256,), dtype=np.float32),
-                # 'mass_neutral': gym.spaces.Box( -1, 1, shape=(256,), dtype=np.float32),
             }
         )
         self.action_space = gym.spaces.Box(
@@ -102,10 +80,8 @@ class EnvControlWrapperJTC:
         # start with the initial position as a goal
         # self.initial_eef = RealFrankaImageDataset.FIXED_INITIAL_EEF
         initial_eef = np.asarray(
-            # [0.40996018, 0.03893278, 0.45212647, 0.0673149, 0.96574436, 0.2338243, 0.03675712],
-            # [0.45324574, 0.08714732, 0.38849032, 0.07325575, 0.96784382, 0.2403741, -0.01149938],
-            [0.36365472, 0.05738774, 0.41780945, 0.08601881, 0.97341422, 0.19614856, 0.08118657]
-        )  # TODO: deal with initial eef
+            [0.37740928, 0.13107821, 0.37139051, 0., 0.99144486, 0., 0.13052619]
+        )
         self.initial_eef = self.convert_eef_to_kdl(initial_eef)  # PyKDL coordinate: tr=[x,y,z] and qu = [x,y,z,w]
 
         self.q_prev = None  # Used for IK
@@ -337,8 +313,8 @@ class EnvControlWrapperWithCamerasJTC(EnvControlWrapperJTC):
         self.camera_0_compressed_msg = None
         self.camera_0_depth_compressed_msg = None
 
-        self.mass_encoding_neutral = self._get_mass_encoding(mass=None, rff_encoder=rff_encoder)
-        self.mass_encoding = self._get_mass_encoding(mass_goal, rff_encoder)
+        # self.mass_encoding_neutral = self._get_mass_encoding(mass=None, rff_encoder=rff_encoder)
+        # self.mass_encoding = self._get_mass_encoding(mass_goal, rff_encoder)
 
         import pathlib
         self.path_debug = pathlib.Path("images_real_debug")
@@ -392,7 +368,7 @@ class EnvControlWrapperWithCamerasJTC(EnvControlWrapperJTC):
 
         return {
             'eef': pos_end_effector.astype(np.float32),
-            'camera_1': camera_0_full_data.astype(np.float32),  # TODO camera_1 -> camera_0
+            'camera_1': camera_0_full_data.astype(np.float32),
             # 'mass': self.mass_encoding.astype(np.float32),
             # 'mass_neutral': self.mass_encoding_neutral.astype(np.float32),
         }
@@ -531,33 +507,10 @@ class DiffusionController(NodeParameterMixin,
 
             self.wait(duration_init + 0.05)
 
-            # print('-' * 25)
-            # print("Init part 2")
             #
             pos_x, pos_q = self.kdl.compute_fk(jnts_obs)
-            # pos_q = np.asarray([pos_q[3], pos_q[0], pos_q[1], pos_q[2]])  # TODO: VERIFY ORDER CONVENTION
             eef = np.concatenate([pos_x.ravel(), pos_q.ravel()])
             print("CURRENT EEF", eef)
-            #
-            # tr = eef[0:3]
-            # qu = eef[3:7]  # TODO: VERIFY THAT WE HAVE THE RIGHT CONVENTION HERE!!
-            # # tr, qu = self._kdl.compute_fk(js)  # PyKDL coordinate: tr=[x,y,z] and qu = [x,y,z,w]
-            #
-            # ee_target_pykdl = PyKDL.Frame(
-            #     PyKDL.Rotation.Quaternion(*qu),
-            #     PyKDL.Vector(*tr),
-            # )
-            #
-            # jnts_target_2 = self.kdl.compute_ik(jnts_obs, ee_target_pykdl)
-            # duration_init = 5  # TODO: parametrise
-            # times_joints_seq = [(duration_init, jnts_target_2)]
-            #
-            # jnts_obs = self.env.get_joints_pos()
-            # times_joints_seq = self.env.interpolate_joints_seq(times_joints_seq, interpolate_frequency=200, initial_jnt=jnts_obs, kind="linear")
-            # self.env.step(times_joints_seq)
-            # print(times_joints_seq)
-            #
-            # time.sleep(duration_init + 0.05)
             return
         elif delta <= 0:
             raise NotImplementedError
@@ -566,8 +519,6 @@ class DiffusionController(NodeParameterMixin,
 
 
         keys_obs = ("camera_1", "eef", "mass",) # TODO
-        # keys_obs = ("camera_1", "eef", )  # TODO: camera_1 -> camera_0
-        # keys_obs = ("eef",)
 
         self.get_logger().info("Adding actions to buffer")
         with torch.no_grad():
@@ -577,7 +528,6 @@ class DiffusionController(NodeParameterMixin,
                 key: value
                 for key, value in stacked_obs.items()
             }
-            # stacked_neutral_obs["mass"] = stacked_neutral_obs["mass_neutral"]
 
             stacked_obs = dict_apply(stacked_obs, lambda x: x.reshape(1, *x.shape))
             stacked_neutral_obs = dict_apply(stacked_neutral_obs, lambda x: x.reshape(1, *x.shape))
@@ -594,23 +544,11 @@ class DiffusionController(NodeParameterMixin,
             # device transfer
             obs_dict = dict_apply(filtered_stacked_obs,
                                   lambda x: torch.from_numpy(x).cuda())
-            neutral_obs_dict = dict_apply(filtered_stacked_neutral_obs,
-                                          lambda x: torch.from_numpy(x).cuda())
 
             obs_dict = self.add_scooping_accomplished_fn(obs_dict)
-            neutral_obs_dict = self.add_scooping_accomplished_fn(neutral_obs_dict)
-
-            # obs_dict["scooping_accomplished"] = torch.zeros_like(obs_dict["scooping_accomplished"])
-            # neutral_obs_dict["scooping_accomplished"] = torch.zeros_like(neutral_obs_dict["scooping_accomplished"])
-            #
-            # obs_dict["scooping_accomplished"][..., 0] = 1.
-            # neutral_obs_dict["scooping_accomplished"][..., 0] = 1.
 
             print("scooping achieved", obs_dict["scooping_accomplished"])
 
-
-            # action_dict = self.policy.predict_action_from_several_samples(neutral_obs_dict, critic_network=self.critic)
-            # action_dict = self.policy.predict_action_from_several_samples(obs_dict, critic_network=self.critic, neutral_obs_dict=neutral_obs_dict)
             action_dict = self.policy.predict_action(obs_dict)
             np_action_dict = dict_apply(action_dict,
                                         lambda x: x.detach().to('cpu').numpy())
@@ -678,9 +616,12 @@ def main(args=None):
     # ckpt_path = "/home/ros/humble/src/diffusion_policy/data/outputs/2024.04.09/18.02.53_train_diffusion_unet_image_franka_kitchen_lowdim/checkpoints/epoch=1530-mse_error_val=0.000.ckpt"  # with images + mass, n_obs_frames_stack = 4
     # ckpt_path = "/home/ros/humble/src/diffusion_policy/data/outputs/2024.04.10/18.53.16_train_diffusion_unet_image_franka_kitchen_lowdim/checkpoints/latest.ckpt"  # with images + mass + critic
     # ckpt_path = "/home/ros/humble/src/diffusion_policy/data/outputs/2024.04.15/20.14.56_train_diffusion_unet_image_franka_kitchen_lowdim/checkpoints/epoch=0485-mse_error_val=0.000.ckpt"  # with images + mass + critic + classifier input + GC
-    ckpt_path = "/home/ros/humble/src/diffusion_policy/data/outputs/2024.04.18/19.45.38_train_diffusion_unet_image_franka_kitchen_lowdim/checkpoints/epoch=0485-mse_error_val=0.000.ckpt"  # with images + mass + critic + classifier input + GC + classification free w/ optimize_reward_boolean
-    dataset_dir = "/home/ros/humble/src/diffusion_policy/data/fake_puree_experiments/diffusion_policy_dataset_exp2_v2_higher/"
-    path_classifier = "/home/ros/humble/src/diffusion_policy/data/outputs/classifier/2024.04.19/12.00.24_train_diffusion_unet_image_franka_kitchen_lowdim/classifier.pt"
+    # ckpt_path = "/home/ros/humble/src/diffusion_policy/data/outputs/2024.04.18/19.45.38_train_diffusion_unet_image_franka_kitchen_lowdim/checkpoints/epoch=0485-mse_error_val=0.000.ckpt"  # with images + mass + critic + classifier input + GC + classification free w/ optimize_reward_boolean
+    # dataset_dir = "/home/ros/humble/src/diffusion_policy/data/fake_puree_experiments/diffusion_policy_dataset_exp2_v2_higher/"
+    # path_classifier = "/home/ros/humble/src/diffusion_policy/data/outputs/classifier/2024.04.19/12.00.24_train_diffusion_unet_image_franka_kitchen_lowdim/classifier.pt"
+    ckpt_path = "/home/ros/humble/src/diffusion_policy/data/outputs/2024.05.09/19.47.27_train_diffusion_unet_image_franka_kitchen_lowdim/checkpoints/latest.ckpt"  # with images + mass + critic + classifier input + GC
+    dataset_dir = "/home/ros/humble/src/project_shokunin/shokunin_common/rl/scooping_agent/puree_agent/dataset_parameterized_motion/"
+    path_classifier = "/home/ros/humble/src/diffusion_policy/data/outputs/classifier/2024.05.09/19.17.18_train_diffusion_unet_image_franka_kitchen_lowdim/classifier.pt"  # TODO
 
 
     # n_obs_steps = 2 # TODO
@@ -726,8 +667,8 @@ def main(args=None):
                                 n_obs_steps=n_obs_steps,
                                 n_action_steps=n_action_steps,
                                 path_bag_robot_description=path_bag_robot_description,
-                                rff_encoder=dataset.rff_encoder,
-                                mass_goal=MASS_GOAL,
+                                rff_encoder=None,
+                                mass_goal=None,
                                 dataset=dataset,
                                 add_scooping_accomplished_fn=add_scooping_accomplished_fn
                                 ),

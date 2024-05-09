@@ -57,7 +57,7 @@ class TrainClassifierWorkspace(BaseWorkspace):
         NUM_CLASSES = 3
 
         # the classifier is fixed and loaded - no finetuning.
-        self.classifier = ClassifierStageScooping(width=240, height=240, number_of_classes=NUM_CLASSES)  # TODO: parametrize
+        self.classifier = ClassifierStageScooping(width=240, height=120, number_of_classes=NUM_CLASSES)  # TODO: parametrize
         self.classifier = self.classifier.to(cfg.training.device)
 
     def run_train_classifier(self):
@@ -247,7 +247,8 @@ class TrainDiffusionUnetHybridWorkspace(BaseWorkspace):
         self.eps_lagrange_constraint_mse_predictions = cfg.eps_lagrange_constraint_mse_predictions
 
         # Critic networks and optimizer: todo
-        self.critic: DoubleCritic = hydra.utils.instantiate(cfg.critic, obs_feature_dim=self.model.obs_feature_dim)
+
+        self.critic: DoubleCritic = hydra.utils.instantiate(cfg.critic, obs_feature_dim=self.model.obs_feature_dim, obs_encoder=copy.deepcopy(self.model.obs_encoder))
         self.critic_optimizer = hydra.utils.instantiate(
             cfg.critic_optimizer, params=self.critic.parameters()
         )
@@ -264,7 +265,7 @@ class TrainDiffusionUnetHybridWorkspace(BaseWorkspace):
         self.bounds_mass = cfg.task.bounds_mass
 
         # the classifier is fixed and loaded - no finetuning.
-        self.classifier = ClassifierStageScooping(width=240, height=240, number_of_classes=NUM_CLASSES)  # TODO: parametrize
+        self.classifier = ClassifierStageScooping(width=240, height=120, number_of_classes=NUM_CLASSES)  # TODO: parametrize
         self.classifier.load_state_dict(torch.load(cfg.training.path_classifier_state_dict))
 
     def load_classifier(self, path):
@@ -442,8 +443,6 @@ class TrainDiffusionUnetHybridWorkspace(BaseWorkspace):
                         # # Update critic
                         rewards = self.reward_function(masses=batch['true_mass'], labels_scooping_achieved=torch.argmax(batch['obs']['scooping_accomplished'], axis=-1))
                         loss_critic, metrics_critic = self.critic.compute_critic_loss(batch,
-                                                                                      nobs_features=_other_data_model[
-                                                                                          'nobs_features'],
                                                                                       critic_target=self.critic_target,
                                                                                       policy=self.model,
                                                                                       rewards=rewards, )

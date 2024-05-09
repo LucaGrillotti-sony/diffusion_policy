@@ -1,3 +1,4 @@
+import os
 import sys
 
 import dill
@@ -22,6 +23,9 @@ OmegaConf.register_new_resolver("eval", eval, replace=True)
 
 import numpy as np
 
+import matplotlib.pyplot as plt
+
+import pathlib
 import matplotlib.pyplot as plt
 
 
@@ -78,8 +82,7 @@ def get_dataset(dataset_dir):
 
     return all_episodes
 
-def get_one_episode(dataset: RealFrankaImageDataset, mass, index_episode: int = 0):
-    sampler = dataset.sampler
+def get_one_episode(dataset: RealFrankaImageDataset, index_episode: int = 0):
     replay_buffer = dataset.replay_buffer
     episode_ends = replay_buffer.episode_ends[:]
     print("episode_ends", episode_ends)
@@ -87,49 +90,21 @@ def get_one_episode(dataset: RealFrankaImageDataset, mass, index_episode: int = 
     index_start = episode_ends[index_episode]
     index_end = episode_ends[index_episode + 1]
 
-    if mass is None:
-        raise NotImplementedError("Mass is None")
-        # mass_obs = dataset.encode_mass(replay_buffer["mass"][index_start:index_end])
-    else:
-        new_mass = np.full_like(replay_buffer["mass"][index_start:index_end], mass)
-        print("New Mass", new_mass)
-        mass_v = dataset.get_vector_mass(new_mass, neutral=False)
-        neutral_mass_v = dataset.get_vector_mass(new_mass, neutral=True)
-        print(f"{neutral_mass_v=}")
-
-        mass_obs = dataset.rff_encoder.encode_vector(mass_v)
-        neutral_mass_obs = dataset.rff_encoder.encode_vector(neutral_mass_v)
 
     # TODO
     camera_0_rgb = replay_buffer["camera_1"][index_start:index_end]
-    # camera_0_depth = replay_buffer["camera_0"][index_start:index_end]
-    # camera_0_data = RealFrankaImageDataset.concatenate_rgb_depth(camera_0_rgb, camera_0_depth)\
     camera_0_data = camera_0_rgb
     camera_0_data = RealFrankaImageDataset.moveaxis_rgbd(camera_0_data)
     camera_0_data = RealFrankaImageDataset.rgbd_255_to_1(camera_0_data)
 
     return {
-        "obs": {  # TODO: update this too
-            "camera_1": camera_0_data,
+        "obs": {
+            "camera_1": camera_0_data * 0.,
             "eef": replay_buffer["eef"][index_start:index_end],
-            "optimize_reward_boolean": np.ones(shape=(camera_0_data.shape[0])),
         },
         "action": replay_buffer['action'][index_start:index_end],
-        "neutral_obs": {  # TODO: update this too
-            "camera_1": camera_0_data,
-            "eef": replay_buffer["eef"][index_start:index_end],
-            "optimize_reward_boolean": np.zeros(shape=(camera_0_data.shape[0])),
-        },
     }
 
-
-def _get_mass_encoding(mass, rff_encoder):
-    if mass is None:
-        _mass_encoding = np.array([[0., 1.]])
-    else:
-        _mass_encoding = np.array([[mass, 0.]])
-
-    return rff_encoder.encode_vector(_mass_encoding)[0]
 
 
 def main():
@@ -137,9 +112,9 @@ def main():
     # ckpt_path = "/home/ros/humble/src/diffusion_policy/data/outputs/2024.04.09/18.02.53_train_diffusion_unet_image_franka_kitchen_lowdim/checkpoints/epoch=1530-mse_error_val=0.000.ckpt"  # with images + mass
     # ckpt_path = "/home/ros/humble/src/diffusion_policy/data/outputs/2024.04.10/18.53.16_train_diffusion_unet_image_franka_kitchen_lowdim/checkpoints/latest.ckpt"  # with images + mass + critic
     # ckpt_path = "/home/ros/humble/src/diffusion_policy/data/outputs/2024.04.12/18.08.50_train_diffusion_unet_image_franka_kitchen_lowdim/checkpoints/epoch=1555-mse_error_val=0.000.ckpt"  # with images + mass + critic + classifier input.
-    ckpt_path = "/home/ros/humble/src/diffusion_policy/data/outputs/2024.04.18/19.45.38_train_diffusion_unet_image_franka_kitchen_lowdim/checkpoints/latest.ckpt"  # with images + mass + critic + classifier input + GC
-    dataset_dir = "/home/ros/humble/src/diffusion_policy/data/fake_puree_experiments/diffusion_policy_dataset_exp2_v2_higher/"
-    path_classifier = "/home/ros/humble/src/diffusion_policy/data/outputs/classifier/2024.04.19/12.00.24_train_diffusion_unet_image_franka_kitchen_lowdim/classifier.pt"  # TODO
+    ckpt_path = "/home/lucagrillotti/ros/humble/src/diffusion_policy/data/outputs/2024.05.09/19.47.27_train_diffusion_unet_image_franka_kitchen_lowdim/checkpoints/latest.ckpt"  # with images + mass + critic + classifier input + GC
+    dataset_dir = "/home/lucagrillotti/ros/humble/src/project_shokunin/shokunin_common/rl/scooping_agent/puree_agent/dataset_parameterized_motion/"
+    path_classifier = "/home/lucagrillotti/ros/humble/src/diffusion_policy/data/outputs/classifier/2024.05.09/19.17.18_train_diffusion_unet_image_franka_kitchen_lowdim/classifier.pt"
 
 
     payload = torch.load(open(ckpt_path, 'rb'), pickle_module=dill)
@@ -147,9 +122,13 @@ def main():
     cfg.task.dataset.dataset_path = dataset_dir
     dataset: RealFrankaImageDataset = hydra.utils.instantiate(cfg.task.dataset)
     cls = hydra.utils.get_class(cfg._target_)
+
+    cfg.task.dataset.dataset_path = dataset_dir
+    cfg.training.path_classifier_state_dict = path_classifier
+
     workspace = cls(cfg)
     workspace: TrainDiffusionUnetHybridWorkspace
-    workspace.load_payload(payload, exclude_keys=None, include_keys=None) # TODO
+    workspace.load_payload(payload, exclude_keys=None, include_keys=None)
     policy = workspace.model
     critic = workspace.critic
     policy = policy.cuda()
@@ -162,79 +141,48 @@ def main():
     workspace.classifier = workspace.classifier.cuda()
     workspace.classifier = workspace.classifier.eval()
 
-    # list_episodes = get_dataset(dataset_dir)
-    mass = 2.5
     index_episode = 12
-    one_episode = get_one_episode(dataset, mass=mass, index_episode=index_episode)
+    one_episode = get_one_episode(dataset, index_episode=index_episode)
 
     sequence_observations = one_episode["obs"]
-    sequence_neutral_observations = one_episode["neutral_obs"]
+    sequence_observations = dict_apply(sequence_observations, lambda x: np.asarray([x[0], x[0], x[0], *x]))
+
     sequence_actions = one_episode["action"]
+    x = sequence_actions
+    sequence_actions = np.asarray([x[0], x[0], x[0], *x])
 
     n_action_steps = 8
-    n_latency_steps = 0
-    n_obs_steps = 4  # TODO
+    n_obs_steps = 4
 
-    # index_start = 60  # TODO - Test with several
-    num_obs = len(sequence_observations["eef"])
-
-    print("length seq", num_obs)
-    print("sequence_observations", sequence_observations["eef"][0])
-    # stacked_true_actions = sequence_actions[index_start:index_start+n_action_steps]
 
     num_dim_actions = sequence_actions.shape[1]
-
-    import pathlib
-    import matplotlib.pyplot as plt
 
     color = plt.cm.rainbow(np.linspace(0, 1, num_dim_actions))
 
     images_debug = "images_debug"
     path_debug = pathlib.Path(images_debug)
     path_debug.mkdir(exist_ok=True)
+    num_obs = len(sequence_observations["eef"])
 
-    # todo
-    images = sequence_observations["camera_1"]
-
-    # for i in range(num_obs):
-    #     plt.clf()
-    #     plt.cla()
-    #     img = images[i]
-    #     img = img[:3] # Taking only RGB
-    #     # img = np.repeat(img, 3, axis=0)
-    #     print("image", i, images[i])
-    #     img = np.moveaxis(img, 0, -1)
-    #     plt.imshow(img)
-    #     plt.savefig(path_debug / f"image_{i}.png")
-    #     plt.clf()
-    #     plt.cla()
 
     for index_start in range(n_obs_steps - 1, num_obs - n_obs_steps - n_action_steps, n_action_steps):
         print(index_start)
         stacked_obs = dict_apply(sequence_observations, lambda x: x[index_start - n_obs_steps + 1:index_start + 1])
-        stacked_neutral_obs = dict_apply(sequence_neutral_observations, lambda x: x[index_start - n_obs_steps + 1:index_start + 1])
-        # print("stacked obs", np.max(stacked_obs["camera_0"]), stacked_obs["camera_0"])
-        initial_eef = sequence_actions[index_start]
+
 
         with torch.no_grad():
             np_obs_dict = dict_apply(stacked_obs, lambda x: x.reshape(1, *x.shape).astype(np.float32))
-            np_neutral_obs_dict = dict_apply(stacked_neutral_obs, lambda x: x.reshape(1, *x.shape).astype(np.float32))
 
             # device transfer
             obs_dict = dict_apply(np_obs_dict,
                                   lambda x: torch.from_numpy(x).cuda())
-            neutral_obs_dict = dict_apply(np_neutral_obs_dict,
-                                          lambda x: torch.from_numpy(x).cuda())
 
             # add 'scooping_accomplished' field
             obs_dict = workspace.add_scooping_accomplished_to_batch_from_classifier(obs_dict,
                                                                                     normalizer=policy.normalizer,
                                                                                     no_batch=False)
-            neutral_obs_dict = workspace.add_scooping_accomplished_to_batch_from_classifier(neutral_obs_dict,
-                                                                                            normalizer=policy.normalizer,
-                                                                                            no_batch=False)
 
-            action_dict = policy.predict_action_from_several_samples(obs_dict, critic, neutral_obs_dict)
+            action_dict = policy.predict_action_from_several_samples(obs_dict, critic,)
             # action_dict = policy.predict_action_from_several_samples(neutral_obs_dict, critic,)  # no classification guided sampling if reward depends of mass.
             # action_dict = policy.predict_action(obs_dict, neutral_obs_dict)
             # action_dict = policy.predict_action(neutral_obs_dict)
@@ -242,10 +190,6 @@ def main():
                                         lambda x: x.detach().to('cpu').numpy())
 
             absolute_actions = np_action_dict['action'].squeeze()
-            print("SHAPES", absolute_actions.shape, initial_eef.shape)
-
-            # predicted_actions = RealFrankaImageDataset.compute_absolute_action(predicted_actions, initial_eef)
-            # print("predicted_actions", predicted_actions.shape)
 
         legend = [
             "x",
@@ -262,8 +206,9 @@ def main():
     
 
 
-
-    plt.savefig(f"predictions_{index_episode=}_{mass=}.png")
+    folder = "predictions_figures/diffusion_x_primitives/"
+    os.makedirs(folder, exist_ok=True)
+    plt.savefig(f"{folder}/predictions_{index_episode=}.png")
     # plt.show()
 
 if __name__ == '__main__':

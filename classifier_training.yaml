@@ -100,7 +100,7 @@ policy:
         shape:
 #          - 4  # TODO
           - 3
-          - 240
+          - 120
           - 240
         type: rgb
       eef:
@@ -148,7 +148,7 @@ critic:
         shape:
 #          - 4  # TODO
           - 3
-          - 240
+          - 120
           - 240
         type: rgb
       eef:
@@ -178,7 +178,7 @@ task:
           shape:
   #          - 4  # TODO
             - 3
-            - 240
+            - 120
             - 240
           type: rgb
         mass:
@@ -196,7 +196,8 @@ task:
 #    dataset_path: /home/ros/humble/src/diffusion_policy/data/smaller_dataset
 #    dataset_path: /home/sony-unicorn/ros/humble/src/diffusion_policy/data/fake_puree_experiments/diffusion_policy_dataset/
 #    dataset_path: /home/lucagrillotti/ros/humble/src/diffusion_policy/data/fake_puree_experiments/diffusion_policy_dataset_exp2_v2/
-    dataset_path: data/fake_puree_experiments/diffusion_policy_dataset_exp2_v2_higher/  # TODO
+#    dataset_path: data/fake_puree_experiments/diffusion_policy_dataset_exp2_v2_higher/  # TODO
+    dataset_path: /home/lucagrillotti/ros/humble/src/project_shokunin/shokunin_common/rl/scooping_agent/puree_agent/dataset_parameterized_motion//  # TODO
     dt: 0.1
     horizon: 16
     n_obs_steps: 4

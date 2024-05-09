@@ -1,6 +1,7 @@
 import random
 from typing import Dict, List
 
+import matplotlib.pyplot as plt
 import toolz
 import torch
 import numpy as np
@@ -242,10 +243,8 @@ class RealFrankaImageDataset(BaseImageDataset):
 
     def get_augment_data_fn(self):
         jitter = v2.ColorJitter(brightness=.5, hue=.3)
-        random_shift_fn = DataAugmentationRandomShifts(pad=0).forward
 
-        augment_data_fn = toolz.compose(random_shift_fn, jitter)
-        return augment_data_fn
+        return jitter
 
     def get_validation_dataset(self):
         val_set = copy.copy(self)
@@ -311,6 +310,7 @@ class RealFrankaImageDataset(BaseImageDataset):
         T_slice = slice(self.n_obs_steps)
         next_T_slice = slice(self.n_action_steps, self.n_obs_steps + self.n_action_steps)
 
+
         obs_dict = dict()
         next_obs_dict = dict()
 
@@ -321,6 +321,7 @@ class RealFrankaImageDataset(BaseImageDataset):
         assert len(self.rgb_keys) == 1
         assert "camera_1" in self.rgb_keys
         assert "camera_0" not in self.rgb_keys
+
         obs_dict["camera_1"] = self.rgbd_255_to_1(self.moveaxis_rgbd(data["camera_1"][T_slice]))
         next_obs_dict["camera_1"] = self.rgbd_255_to_1(self.moveaxis_rgbd(data["camera_1"][next_T_slice]))
         del data["camera_1"]  # save ram

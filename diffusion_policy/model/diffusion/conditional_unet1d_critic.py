@@ -165,6 +165,7 @@ class DoubleCritic(nn.Module):
                  n_obs_steps,
                  n_action_steps,
                  horizon,
+                 obs_encoder,
                  obs_as_global_cond=True,
                  diffusion_step_embed_dim=256,
                  down_dims=(256, 512, 1024),
@@ -211,6 +212,7 @@ class DoubleCritic(nn.Module):
             n_groups=n_groups,
             cond_predict_scale=cond_predict_scale
         )
+        self.obs_encoder = obs_encoder
 
         self.normalizer = LinearNormalizer()
         self.is_normalizer_set = False
@@ -221,8 +223,28 @@ class DoubleCritic(nn.Module):
         self.horizon = horizon
 
     def forward(self, x, local_cond=None, global_cond=None, **kwargs):
+
         return (self.critic_model_1(x, local_cond, global_cond, **kwargs),
                 self.critic_model_2(x, local_cond, global_cond, **kwargs))
+
+    def compute_obs_encoding(self, batch, detach=False):
+        assert 'valid_mask' not in batch
+        nobs = self.normalizer.normalize(batch['obs'])
+        # handle different ways of passing observation
+
+        if self.obs_as_global_cond:
+            # reshape B, T, ... to B*T
+            this_nobs = dict_apply(nobs,
+                lambda x: x[:, :self.n_obs_steps, ...].reshape(-1, *x.shape[2:]))
+            nobs_features = self.obs_encoder(this_nobs)
+            # reshape back to B, Do
+        else:
+            raise NotImplementedError
+
+        if detach:
+            nobs_features = nobs_features.detach()
+        return nobs_features
+
 
     def get_min_critics(self, x, local_cond=None, global_cond=None, consider_action_full_horizon=True, **kwargs, ):
         if consider_action_full_horizon:
@@ -232,9 +254,12 @@ class DoubleCritic(nn.Module):
         concat_critic_values = torch.cat([critic_values_1, critic_values_2], dim=-1)
         return torch.min(concat_critic_values, dim=-1)[0]
 
-    def get_one_critic(self, x, local_cond=None, global_cond=None, consider_action_full_horizon=True, **kwargs):
+    def get_one_critic(self, x, batch, local_cond=None, consider_action_full_horizon=True, **kwargs):
         if consider_action_full_horizon:
             x = self.extract_executed_actions(x)
+
+        nobs_encoding = self.compute_obs_encoding(batch, detach=False)
+        global_cond = self.get_global_cond(batch, nobs_encoding)
 
         return self.critic_model_1(x, local_cond, global_cond, **kwargs)
 
@@ -252,8 +277,6 @@ class DoubleCritic(nn.Module):
         return executed_action
 
     def get_global_cond(self, batch, nobs_features):
-        nobs_features = nobs_features.detach()
-
         value = next(iter(batch["obs"].values()))
         B, To = value.shape[:2]
 
@@ -268,8 +291,10 @@ class DoubleCritic(nn.Module):
         nactions = self.normalizer['action'].normalize(actions)
         return nactions
 
-    def compute_critic_loss(self, batch, nobs_features, critic_target: DoubleCritic, policy, rewards):
-        nobs_features = nobs_features.detach()
+    def compute_critic_loss(self, batch, critic_target: DoubleCritic, policy, rewards):
+        # nobs_features = nobs_features.detach()
+
+        nobs_features = self.compute_obs_encoding(batch, detach=False)
 
         # normalize input
         assert 'valid_mask' not in batch

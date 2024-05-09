@@ -8,7 +8,7 @@ class ClassifierStageScooping(torch.nn.Module):
     def __init__(self, width, height, number_of_classes):
         super().__init__()
 
-        assert width == height
+        # assert width == height
 
         self.number_of_classes = number_of_classes
 
@@ -18,7 +18,7 @@ class ClassifierStageScooping(torch.nn.Module):
         self.pool_max = torch.nn.MaxPool2d(2, 2)
         self.pool_avg = torch.nn.AvgPool2d(kernel_size=2, stride=2)
 
-        in_features = (width // 8) * (height // 8) * 16 // 4
+        in_features = (width // 16) * (height // 16) * 16
 
         print("IN FEATURES", in_features)
 
@@ -63,7 +63,7 @@ class ClassifierStageScooping(torch.nn.Module):
 
 
 def test():
-    classifier = ClassifierStageScooping(width=240, height=240, number_of_classes=3)
+    classifier = ClassifierStageScooping(width=240, height=120, number_of_classes=3)
 
     num_channels = 3
     h = 240
