@@ -1,5 +1,103 @@
 # Diffusion Policy
 
+## How to prepare a dataset and run an experiment?
+
+### Create rosbag recordings and extra data
+
+The folder should have the following structure:
+```
+data.csv
+0/
+    rosbag_0.bag
+1/
+    rosbag_1.bag
+...
+```
+
+Where each rosbag contains the following topics:
+- `/camera/depth/image_raw`
+- `/camera/color/image_raw`
+- `/robot_state`
+- `/robot_description`
+
+### Extract data from rosbag recordings
+
+In this step, we will convert the rosbags into interpretable data.
+
+For this you simply need to launch the following command:
+```bash
+# TODO
+```
+
+The newly generated data will have the following structure:
+```
+actions/
+  0/
+     mass.txt  # mass scooped at each step
+     current_eef_pos_interpolated.npy  # End effector position at each step (used in observations)
+     target_end_effector_pos_interpolated.npy  # Target end effector position at each step (used for actions)
+     # TODO
+  1/
+     ...
+  2/
+     ...
+videos/
+    0/
+      0.mp4 - depth video
+      1.mp4 - rgb video
+    1/
+      0.mp4 - depth video
+      1.mp4 - rgb video
+    ...
+numpy/
+    0/
+      0.npy - first image of the depth video
+      1.npy - first image of the rgb video
+    ...
+```
+
+Each folder "XX/" refers to the data from "rosbag_XX.bag".
+
+### Annotate each video step
+
+Now we want to specify a "label" for each frame of the video, which will be used to specify the reward for the policy.
+In our case the label speficies at which step the scooping is achieved (i.e. there is puree on the spoon).
+You can run an automated script to annotate the videos:
+
+```bash
+python ... # TODO
+```
+which will automatically display the rgb videos one by one and ask you to specify the label for each frame.
+Then you can press "0" to give a label of 0, "1" to give a label of 1, and pressing those keys move to the following frame.
+After a video is done, the script will ask you to press enter and the next video will be displayed.
+
+### Generate Interpolated data
+
+
+
+### Generate the zarr dataset
+
+Now we will generate the zarr dataset that will be used for training the policy.
+
+```bash
+
+```
+
+You may find here an example of such data.
+
+### Launch Diffusion Policy training using the previous dataset
+
+Now that the dataset is ready, you can specify its path in the configuration file.
+Go to the configuration file [franka_end_effector_image_obs.yaml](franka_end_effector_image_obs.yaml) and specify the path to the dataset in the `task.dataset_path` field.
+
+Then you can launch the training using the following command:
+```bash
+python train.py
+```
+
+
+## References to Diffusion Policy Paper
+
 [[Project page]](https://diffusion-policy.cs.columbia.edu/)
 [[Paper]](https://diffusion-policy.cs.columbia.edu/#paper)
 [[Data]](https://diffusion-policy.cs.columbia.edu/data/)
@@ -260,17 +358,6 @@ python eval_real_robot.py -i data/outputs/blah/checkpoints/latest.ckpt -o data/e
 ```
 Press "C" to start evaluation (handing control over to the policy). Press "S" to stop the current episode.
 
-## 🗺️ Codebase Tutorial
-This codebase is structured under the requirement that:
-1. implementing `N` tasks and `M` methods will only require `O(N+M)` amount of code instead of `O(N*M)`
-2. while retaining maximum flexibility.
-
-To achieve this requirement, we 
-1. maintained a simple unified interface between tasks and methods and 
-2. made the implementation of the tasks and the methods independent of each other. 
-
-These design decisions come at the cost of code repetition between the tasks and the methods. However, we believe that the benefit of being able to add/modify task/methods without affecting the remainder and being able understand a task/method by reading the code linearly outweighs the cost of copying and pasting 😊.
-
 ### The Split
 On the task side, we have:
 * `Dataset`: adapts a (third-party) dataset to the interface.
@@ -424,14 +511,3 @@ Make sure your workspace yaml's `_target_` points to the new workspace class you
 
 ## 🏷️ License
 This repository is released under the MIT license. See [LICENSE](LICENSE) for additional details.
-
-## 🙏 Acknowledgement
-* Our [`ConditionalUnet1D`](./diffusion_policy/model/diffusion/conditional_unet1d.py) implementation is adapted from [Planning with Diffusion](https://github.com/jannerm/diffuser).
-* Our [`TransformerForDiffusion`](./diffusion_policy/model/diffusion/transformer_for_diffusion.py) implementation is adapted from [MinGPT](https://github.com/karpathy/minGPT).
-* The [BET](./diffusion_policy/model/bet) baseline is adapted from [its original repo](https://github.com/notmahi/bet).
-* The [IBC](./diffusion_policy/policy/ibc_dfo_lowdim_policy.py) baseline is adapted from [Kevin Zakka's reimplementation](https://github.com/kevinzakka/ibc).
-* The [Robomimic](https://github.com/ARISE-Initiative/robomimic) tasks and [`ObservationEncoder`](https://github.com/ARISE-Initiative/robomimic/blob/master/robomimic/models/obs_nets.py) are used extensively in this project.
-* The [Push-T](./diffusion_policy/env/pusht) task is adapted from [IBC](https://github.com/google-research/ibc).
-* The [Block Pushing](./diffusion_policy/env/block_pushing) task is adapted from [BET](https://github.com/notmahi/bet) and [IBC](https://github.com/google-research/ibc).
-* The [Kitchen](./diffusion_policy/env/kitchen) task is adapted from [BET](https://github.com/notmahi/bet) and [Relay Policy Learning](https://github.com/google-research/relay-policy-learning).
-* Our [shared_memory](./diffusion_policy/shared_memory) data structures are heavily inspired by [shared-ndarray2](https://gitlab.com/osu-nrsg/shared-ndarray2).
