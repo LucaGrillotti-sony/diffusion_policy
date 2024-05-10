@@ -35,7 +35,6 @@ def run(folder_to_parse, skip=False):
         print("Annotating video...", _path_video_handeye)
         input("Press enter to continue...")
 
-
         annotate_video(_path_video_handeye, _path_save, number_total_actions=number_total_actions, new_fps=NEW_FPS,)
 
 

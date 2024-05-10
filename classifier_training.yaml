@@ -1,6 +1,6 @@
 hydra:
   run:
-    dir: 'data/outputs/classifier/${now:%Y.%m.%d}/${now:%H.%M.%S}_${name}_${task_name}'
+    dir: 'results_classifier/${now:%Y.%m.%d}/${now:%H.%M.%S}_${name}_${task_name}'
 
 _target_: diffusion_policy.workspace.train_diffusion_unet_hybrid_workspace.TrainClassifierWorkspace
 action_dim: 7
@@ -137,7 +137,7 @@ critic:
     - 1024
     - 2048
   kernel_size: 5
-  n_obs_steps: 4 # TODO: put back to 2?
+  n_obs_steps: 4
   n_groups: 8
   shape_meta:
     action:
@@ -193,11 +193,7 @@ task:
         shape:
           - 1
         type: low_dim
-#    dataset_path: /home/ros/humble/src/diffusion_policy/data/smaller_dataset
-#    dataset_path: /home/sony-unicorn/ros/humble/src/diffusion_policy/data/fake_puree_experiments/diffusion_policy_dataset/
-#    dataset_path: /home/lucagrillotti/ros/humble/src/diffusion_policy/data/fake_puree_experiments/diffusion_policy_dataset_exp2_v2/
-#    dataset_path: data/fake_puree_experiments/diffusion_policy_dataset_exp2_v2_higher/  # TODO
-    dataset_path: /home/lucagrillotti/ros/humble/src/project_shokunin/shokunin_common/rl/scooping_agent/puree_agent/dataset_parameterized_motion//  # TODO
+    dataset_path: /home/lucagrillotti/ros/humble/src/project_shokunin/shokunin_common/rl/scooping_agent/puree_agent/dataset_parameterized_motion/  # TODO
     dt: 0.1
     horizon: 16
     n_obs_steps: 4

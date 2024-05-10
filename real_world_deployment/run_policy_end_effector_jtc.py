@@ -52,6 +52,8 @@ from kdl_solver import KDLSolver
 
 
 class EnvControlWrapperJTC:
+    FIXED_INITIAL_EEF = np.asarray([0.37740928, 0.13107821, 0.37139051, 0., 0.99144486, 0., 0.13052619])
+
     def __init__(self, jtc_client, n_obs_steps, n_action_steps, path_bag_robot_description):
         self.robot_description = get_robot_description(path_bag_robot_description=path_bag_robot_description)
         self.cv_bridge = CvBridge()
@@ -61,7 +63,7 @@ class EnvControlWrapperJTC:
         self.observation_space = gym.spaces.Dict(
             {
                 'eef': gym.spaces.Box(-8, 8, shape=(7,), dtype=np.float32),
-                'camera_1': gym.spaces.Box(0, 1, shape=(3, 240, 240), dtype=np.float32),  # TODO 3 -> 4, camera_1 -> camera_0
+                'camera_1': gym.spaces.Box(0, 1, shape=(3, 240, 240), dtype=np.float32),
             }
         )
         self.action_space = gym.spaces.Box(
@@ -78,18 +80,14 @@ class EnvControlWrapperJTC:
         self.queue_actions = queue.Queue()
 
         # start with the initial position as a goal
-        # self.initial_eef = RealFrankaImageDataset.FIXED_INITIAL_EEF
-        initial_eef = np.asarray(
-            [0.37740928, 0.13107821, 0.37139051, 0., 0.99144486, 0., 0.13052619]
-        )
+        initial_eef = self.FIXED_INITIAL_EEF
         self.initial_eef = self.convert_eef_to_kdl(initial_eef)  # PyKDL coordinate: tr=[x,y,z] and qu = [x,y,z,w]
 
         self.q_prev = None  # Used for IK
 
-
     def reset(self):
         # times_joints_seq set to None, to avoid sending any action to the environment
-        obs, *_ = self.step(times_joints_seq=None)  # TODO: deal with initial pos
+        obs, *_ = self.step(times_joints_seq=None)
         return obs
 
     def _compute_obs(self):
@@ -186,8 +184,7 @@ class EnvControlWrapperJTC:
             if convert_eef_to_kdl_convention:
                 eef = self.convert_eef_to_kdl(eef)
             tr = eef[0:3]
-            qu = eef[3:7]  # TODO: VERIFY THAT WE HAVE THE RIGHT CONVENTION HERE!!
-            # tr, qu = self._kdl.compute_fk(js)  # PyKDL coordinate: tr=[x,y,z] and qu = [x,y,z,w]
+            qu = eef[3:7]
 
             ee_target_pykdl = PyKDL.Frame(
                 PyKDL.Rotation.Quaternion(*qu),
@@ -244,8 +241,6 @@ class EnvControlWrapperJTC:
 
         # interpolate
         time_interpolation = np.arange(start=0.0, stop=total_duration, step=1.0 / interpolate_frequency)
-        print(all_times, all_joints)
-        print(len(all_times), len(all_joints))
         jnt_demo_interpolated = scipy.interpolate.interp1d(
             all_times,
             all_joints,
@@ -255,7 +250,6 @@ class EnvControlWrapperJTC:
 
         # return the new list_times_jnts after interpolation
         return list(zip(time_interpolation, jnt_demo_interpolated))
-
 
     @classmethod
     def time_multiply(cls, list_jnts_time, time_multiplier):
@@ -296,7 +290,7 @@ class EnvControlWrapperJTC:
         """
 
         goal_msg = FollowJointTrajectory.Goal()
-        goal_msg.trajectory.joint_names = [f"panda_joint{i}" for i in range(1, 7+1)]
+        goal_msg.trajectory.joint_names = [f"panda_joint{i}" for i in range(1, 7 + 1)]
 
         goal_msg.trajectory.points = [
             JointTrajectoryPoint(positions=qi[:7], time_from_start=Duration(seconds=ti).to_msg()) for ti, qi in jpos
@@ -306,15 +300,11 @@ class EnvControlWrapperJTC:
 
 
 class EnvControlWrapperWithCamerasJTC(EnvControlWrapperJTC):
-    def __init__(self, jtc_client, n_obs_steps, n_action_steps, path_bag_robot_description,
-                 rff_encoder: RandomFourierFeatures, mass_goal=None):
+    def __init__(self, jtc_client, n_obs_steps, n_action_steps, path_bag_robot_description,):
         super().__init__(jtc_client, n_obs_steps, n_action_steps, path_bag_robot_description)
 
         self.camera_0_compressed_msg = None
         self.camera_0_depth_compressed_msg = None
-
-        # self.mass_encoding_neutral = self._get_mass_encoding(mass=None, rff_encoder=rff_encoder)
-        # self.mass_encoding = self._get_mass_encoding(mass_goal, rff_encoder)
 
         import pathlib
         self.path_debug = pathlib.Path("images_real_debug")
@@ -338,8 +328,8 @@ class EnvControlWrapperWithCamerasJTC(EnvControlWrapperJTC):
 
     def get_obs(self):
         if (self._jstate is None
-                or self.camera_0_compressed_msg is None
-                # or self.camera_0_depth_compressed_msg is None  # TODO
+            or self.camera_0_compressed_msg is None
+            # or self.camera_0_depth_compressed_msg is None  # TODO
         ):
             print(f"WARNING, the following are None:")
             print(f"self._jstate: {'not None' if self._jstate is not None else 'None'}")
@@ -358,19 +348,16 @@ class EnvControlWrapperWithCamerasJTC(EnvControlWrapperJTC):
         #
         # camera_0_depth_data = convert_image(cv_bridge=self.cv_bridge, msg_ros=self.camera_0_depth_compressed_msg,
         #                                     is_depth=True)
-        #
+
         # camera_0_full_data = RealFrankaImageDataset.concatenate_rgb_depth(camera_0_data, camera_0_depth_data)  # TODO
         camera_0_full_data = camera_0_data
+
         camera_0_full_data = RealFrankaImageDataset.moveaxis_rgbd(camera_0_full_data, single_rgb=True)
         camera_0_full_data = RealFrankaImageDataset.rgbd_255_to_1(camera_0_full_data)
 
-        # self._save_image(camera_0_full_data.astype(np.float32))
-
         return {
             'eef': pos_end_effector.astype(np.float32),
-            'camera_1': camera_0_full_data.astype(np.float32),
-            # 'mass': self.mass_encoding.astype(np.float32),
-            # 'mass_neutral': self.mass_encoding_neutral.astype(np.float32),
+            'camera_1': camera_0_full_data.astype(np.float32),  # we use camera_1 in the policy
         }
 
     def _bgr_to_rgb(self, data):
@@ -383,13 +370,12 @@ class EnvControlWrapperWithCamerasJTC(EnvControlWrapperJTC):
         plt.cla()
         img = data[:3]  # Taking only RGB
         print(f"Saving image {i} with shape", img.shape)
-        # img = np.repeat(img, 3, axis=0)
-        # print("image", i)
         img = np.moveaxis(img, 0, -1)
         plt.imshow(img)
         plt.savefig(self.path_debug / f"image_{i}.png")
 
         self._index_image += 1
+
 
 class DiffusionController(NodeParameterMixin,
                           NodeWaitMixin,
@@ -404,8 +390,7 @@ class DiffusionController(NodeParameterMixin,
         camera_0_depth_topic="/d405rs01/aligned_depth_to_color/image_raw",
     )
 
-    def __init__(self, policy, critic, n_obs_steps, n_action_steps, path_bag_robot_description, rff_encoder, mass_goal,
-                 dataset, add_scooping_accomplished_fn,
+    def __init__(self, policy, critic, n_obs_steps, n_action_steps, path_bag_robot_description, add_scooping_accomplished_fn,
                  *args, node_name='robot_calibrator', **kwargs):
         super().__init__(*args, node_name=node_name, node_parameters=self.NODE_PARAMETERS, **kwargs)
 
@@ -432,8 +417,7 @@ class DiffusionController(NodeParameterMixin,
                                                    n_obs_steps=n_obs_steps,
                                                    n_action_steps=n_action_steps,
                                                    path_bag_robot_description=path_bag_robot_description,
-                                                   rff_encoder=rff_encoder,
-                                                   mass_goal=mass_goal, )
+                                                   )
         self.policy = policy
         self.policy = self.policy.cuda()
         self.policy = self.policy.eval()
@@ -461,15 +445,14 @@ class DiffusionController(NodeParameterMixin,
             CompressedImage, self.camera_0_topic, lambda msg: self.env.set_camera_0_compressed_msg(msg), self.frequency)
 
         self.camera_0_depth_sub = self.create_subscription(
-            Image, self.camera_0_depth_topic, lambda msg: self.env.set_camera_0_depth_compressed_msg(msg), self.frequency)
-
+            Image, self.camera_0_depth_topic, lambda msg: self.env.set_camera_0_depth_compressed_msg(msg),
+            self.frequency)
 
         self._time_start_waiting = None
         self._waiting = False
         self._duration_wait = None
 
         self.add_scooping_accomplished_fn = add_scooping_accomplished_fn
-
 
     def policy_cb(self):
         self.env.append_obs()
@@ -484,7 +467,7 @@ class DiffusionController(NodeParameterMixin,
         jnts_obs = self.env.get_joints_pos()
 
         pos_x, pos_q = self.kdl.compute_fk(jnts_obs)
-        # pos_q = np.asarray([pos_q[3], pos_q[0], pos_q[1], pos_q[2]])  # TODO: VERIFY ORDER CONVENTION
+
         eef = np.concatenate([pos_x.ravel(), pos_q.ravel()])
 
         delta = 5
@@ -498,27 +481,27 @@ class DiffusionController(NodeParameterMixin,
             print("dt <= delta and delta > 0, Initializing")
             self.stacked_obs = self.env.reset()
 
-            jnts_target_1 = self.env.convert_eef_to_joints(self.env.initial_eef.reshape(1, -1), joints_init=jnts_obs).ravel()
-            duration_init = 5  # TODO: parametrise
+            jnts_target_1 = self.env.convert_eef_to_joints(self.env.initial_eef.reshape(1, -1),
+                                                           joints_init=jnts_obs).ravel()
+            duration_init = 5  # 5 seconds to reach the initial position
             times_joints_seq = [(duration_init, jnts_target_1)]
-            times_joints_seq = self.env.interpolate_joints_seq(times_joints_seq, interpolate_frequency=200, initial_jnt=jnts_obs, kind="linear")
+            times_joints_seq = self.env.interpolate_joints_seq(times_joints_seq, interpolate_frequency=200,
+                                                               initial_jnt=jnts_obs, kind="linear")
             self.env.step(times_joints_seq)
-            # print(times_joints_seq)
 
             self.wait(duration_init + 0.05)
 
             #
             pos_x, pos_q = self.kdl.compute_fk(jnts_obs)
             eef = np.concatenate([pos_x.ravel(), pos_q.ravel()])
-            print("CURRENT EEF", eef)
+            print("current eef", eef)
             return
         elif delta <= 0:
             raise NotImplementedError
 
         # jac
 
-
-        keys_obs = ("camera_1", "eef", "mass",) # TODO
+        keys_obs = ("camera_1", "eef", "mass",)  # TODO
 
         self.get_logger().info("Adding actions to buffer")
         with torch.no_grad():
@@ -562,22 +545,21 @@ class DiffusionController(NodeParameterMixin,
 
         print("eef", eef)
         print("absolute_actions_eef", absolute_actions_eef)
-        action_joints = self.env.convert_eef_to_joints(absolute_actions_eef, joints_init=jnts_obs, convert_eef_to_kdl_convention=True)
-        times_joints_seq = self.env.add_times_to_joints_seq(action_joints, frequency=5)  # TODO: frequency
-        times_joints_seq = self.env.time_multiply(times_joints_seq, time_multiplier=1.)  # TODO: parametrize
-        times_joints_seq = self.env.time_offset(times_joints_seq, time_offset=0.5)  # TODO: parametrize
-        times_joints_seq = self.env.interpolate_joints_seq(times_joints_seq, interpolate_frequency=200, initial_jnt=jnts_obs)  # TODO: parametrize
+        action_joints = self.env.convert_eef_to_joints(absolute_actions_eef, joints_init=jnts_obs,
+                                                       convert_eef_to_kdl_convention=True)
+        times_joints_seq = self.env.add_times_to_joints_seq(action_joints, frequency=5)
+
+        times_joints_seq = self.env.time_offset(times_joints_seq, time_offset=0.5)
+        times_joints_seq = self.env.interpolate_joints_seq(times_joints_seq, interpolate_frequency=200,
+                                                           initial_jnt=jnts_obs)
         duration = times_joints_seq[-1][0]
         self.env.step(times_joints_seq)
         self.wait(duration + 0.05)
-        # TODO: hope observations keep getting collected in this duration.
 
     def is_waiting(self):
         return self._waiting
 
     def waiting_cb(self):
-        # print("IN WAITING CB")
-
         # at initialization, do not wait
         if self._time_start_waiting is None:
             self._waiting = False
@@ -607,24 +589,12 @@ class DiffusionController(NodeParameterMixin,
 
 @hydra.main(
     version_base=None,
-    # config_path=str(pathlib.Path(__file__).parent.joinpath(
-    #     'diffusion_policy','config'))
 )
 def main(args=None):
-    # ckpt_path = "/home/ros/humble/src/diffusion_policy/data/outputs/2024.04.08/14.10.05_train_diffusion_unet_image_franka_kitchen_lowdim/checkpoints/latest.ckpt"  # only EEF
-    # ckpt_path = "/home/ros/humble/src/diffusion_policy/data/outputs/2024.04.08/16.24.23_train_diffusion_unet_image_franka_kitchen_lowdim/checkpoints/epoch=0280-mse_error_val=0.000.ckpt"  # with images, n_obs_frames_stack = 4
-    # ckpt_path = "/home/ros/humble/src/diffusion_policy/data/outputs/2024.04.09/18.02.53_train_diffusion_unet_image_franka_kitchen_lowdim/checkpoints/epoch=1530-mse_error_val=0.000.ckpt"  # with images + mass, n_obs_frames_stack = 4
-    # ckpt_path = "/home/ros/humble/src/diffusion_policy/data/outputs/2024.04.10/18.53.16_train_diffusion_unet_image_franka_kitchen_lowdim/checkpoints/latest.ckpt"  # with images + mass + critic
-    # ckpt_path = "/home/ros/humble/src/diffusion_policy/data/outputs/2024.04.15/20.14.56_train_diffusion_unet_image_franka_kitchen_lowdim/checkpoints/epoch=0485-mse_error_val=0.000.ckpt"  # with images + mass + critic + classifier input + GC
-    # ckpt_path = "/home/ros/humble/src/diffusion_policy/data/outputs/2024.04.18/19.45.38_train_diffusion_unet_image_franka_kitchen_lowdim/checkpoints/epoch=0485-mse_error_val=0.000.ckpt"  # with images + mass + critic + classifier input + GC + classification free w/ optimize_reward_boolean
-    # dataset_dir = "/home/ros/humble/src/diffusion_policy/data/fake_puree_experiments/diffusion_policy_dataset_exp2_v2_higher/"
-    # path_classifier = "/home/ros/humble/src/diffusion_policy/data/outputs/classifier/2024.04.19/12.00.24_train_diffusion_unet_image_franka_kitchen_lowdim/classifier.pt"
     ckpt_path = "/home/ros/humble/src/diffusion_policy/data/outputs/2024.05.09/19.47.27_train_diffusion_unet_image_franka_kitchen_lowdim/checkpoints/latest.ckpt"  # with images + mass + critic + classifier input + GC
     dataset_dir = "/home/ros/humble/src/project_shokunin/shokunin_common/rl/scooping_agent/puree_agent/dataset_parameterized_motion/"
     path_classifier = "/home/ros/humble/src/diffusion_policy/data/outputs/classifier/2024.05.09/19.17.18_train_diffusion_unet_image_franka_kitchen_lowdim/classifier.pt"  # TODO
 
-
-    # n_obs_steps = 2 # TODO
     n_obs_steps = 4
     n_action_steps = 8
     path_bag_robot_description = "/home/ros/humble/src/diffusion_policy/data/experiment_2/bags_kinesthetic_v0/rosbag_00/"
@@ -649,15 +619,14 @@ def main(args=None):
 
     policy = workspace.model
 
-    MASS_GOAL = 2.5
-
     workspace.load_classifier(path_classifier)
 
     workspace.classifier = workspace.classifier.cuda()
     workspace.classifier = workspace.classifier.eval()
 
-    add_scooping_accomplished_fn = lambda x: workspace.add_scooping_accomplished_to_batch_from_classifier(x, normalizer=policy.normalizer, no_batch=False)
-
+    add_scooping_accomplished_fn = lambda x: workspace.add_scooping_accomplished_to_batch_from_classifier(x,
+                                                                                                          normalizer=policy.normalizer,
+                                                                                                          no_batch=False)
     args = None
     rclpy.init(args=args)
     try:
@@ -667,9 +636,6 @@ def main(args=None):
                                 n_obs_steps=n_obs_steps,
                                 n_action_steps=n_action_steps,
                                 path_bag_robot_description=path_bag_robot_description,
-                                rff_encoder=None,
-                                mass_goal=None,
-                                dataset=dataset,
                                 add_scooping_accomplished_fn=add_scooping_accomplished_fn
                                 ),
         ]
@@ -688,6 +654,6 @@ def main(args=None):
             rclpy.shutdown()
     print("Finished")
 
+
 if __name__ == "__main__":
-    print(1)
     main()

@@ -24,18 +24,18 @@ register_codecs()
 
 
 def real_data_to_replay_buffer(
-        dataset_path: str,
-        out_store: Optional[zarr.ABSStore] = None,
-        out_resolutions: Union[None, tuple, Dict[str, tuple]] = None,  # (width, height)
-        lowdim_keys: Optional[Sequence[str]] = None,
-        image_keys: Optional[Sequence[str]] = None,
-        lowdim_compressor: Optional[numcodecs.abc.Codec] = None,
-        image_compressor: Optional[numcodecs.abc.Codec] = None,
-        n_decoding_threads: int = min(multiprocessing.cpu_count(), 16),
-        n_encoding_threads: int = min(multiprocessing.cpu_count(), 16),
-        max_inflight_tasks: int = min(multiprocessing.cpu_count(), 16) * 5,
-        verify_read: bool = True,
-        dt: int = None,
+    dataset_path: str,
+    out_store: Optional[zarr.ABSStore] = None,
+    out_resolutions: Union[None, tuple, Dict[str, tuple]] = None,  # (width, height)
+    lowdim_keys: Optional[Sequence[str]] = None,
+    image_keys: Optional[Sequence[str]] = None,
+    lowdim_compressor: Optional[numcodecs.abc.Codec] = None,
+    image_compressor: Optional[numcodecs.abc.Codec] = None,
+    n_decoding_threads: int = min(multiprocessing.cpu_count(), 16),
+    n_encoding_threads: int = min(multiprocessing.cpu_count(), 16),
+    max_inflight_tasks: int = min(multiprocessing.cpu_count(), 16) * 5,
+    verify_read: bool = True,
+    dt: int = None,
 ) -> ReplayBuffer:
     """
     It is recommended to use before calling this function
@@ -172,11 +172,11 @@ def real_data_to_replay_buffer(
                     image_tf = get_image_transform(
                         input_res=in_img_res, output_res=out_img_res, bgr_to_rgb=False)
                     for step_idx, frame in enumerate(read_video(
-                            video_path=str(video_path),
-                            dt=dt,
-                            img_transform=image_tf,
-                            thread_type='FRAME',
-                            thread_count=n_decoding_threads
+                        video_path=str(video_path),
+                        dt=dt,
+                        img_transform=image_tf,
+                        thread_type='FRAME',
+                        thread_count=n_decoding_threads
                     )):
                         if len(futures) >= max_inflight_tasks:
                             # limit number of inflight tasks
@@ -259,10 +259,16 @@ def create_zarr_action_dataset(dataset_path: str):
         )
 
 
-def test_real_data_conversion():
-    # dataset_path = pathlib.Path("/home/lucagrillotti/ros/humble/src/diffusion_policy/data/test_dataset/")
-    dataset_path = pathlib.Path(
-        "/home/lucagrillotti/ros/humble/src/project_shokunin/shokunin_common/rl/scooping_agent/puree_agent/dataset_parameterized_motion")
+def get_args():
+    import argparse
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--dataset-path", type=str, )
+    return parser.parse_args()
+
+
+def main():
+    args = get_args()
+    dataset_path = pathlib.Path(args.dataset_path)
     output_path = dataset_path / "replay_buffer_final.zarr.zip"
     assert output_path.suffix == ".zip"
     cv2.setNumThreads(1)
@@ -281,10 +287,4 @@ def test_real_data_conversion():
 
 
 if __name__ == '__main__':
-    # new_replay_buffer = ReplayBuffer.copy_from_path("/home/lucagrillotti/projects/diffusion_policy/data/test_dataset/replay_buffer_final.zarr.zip")
-    # with zarr.ZipStore("test.zarr.zip") as zip_store:
-    #     new_replay_buffer.save_to_store(
-    #         store=zip_store
-    #     )
-
-    test_real_data_conversion()
+    main()

@@ -1,5 +1,13 @@
 # Diffusion Policy
 
+## Installation
+
+```bash
+python -m venv venv
+pip install -r requirements.txt
+```
+
+
 ## How to prepare a dataset and run an experiment?
 
 ### Create rosbag recordings and extra data
@@ -20,23 +28,28 @@ Where each rosbag contains the following topics:
 - `/robot_state`
 - `/robot_description`
 
+You may find an example of such data [here](https://drive.google.com/file/d/1aAjXYi9mlZQcQlYLDBZ1H6yckgkJnXjJ/view?usp=drive_link).
+
+[//]: # (TODO: simpler)
+
+
+
 ### Extract data from rosbag recordings
 
 In this step, we will convert the rosbags into interpretable data.
 
 For this you simply need to launch the following command:
 ```bash
-# TODO
+python read_sensors_utils/format_data_replay_buffer.py --path-save XXX --path-load YYY
 ```
 
 The newly generated data will have the following structure:
 ```
 actions/
   0/
-     mass.txt  # mass scooped at each step
+     mass.txt  # mass scooped at each step which should have at least two columns: index and mass
      current_eef_pos_interpolated.npy  # End effector position at each step (used in observations)
      target_end_effector_pos_interpolated.npy  # Target end effector position at each step (used for actions)
-     # TODO
   1/
      ...
   2/
@@ -65,36 +78,171 @@ In our case the label speficies at which step the scooping is achieved (i.e. the
 You can run an automated script to annotate the videos:
 
 ```bash
-python ... # TODO
+python annotator/annotator_parsor.py --folder-to-parse XXX --skip
 ```
 which will automatically display the rgb videos one by one and ask you to specify the label for each frame.
 Then you can press "0" to give a label of 0, "1" to give a label of 1, and pressing those keys move to the following frame.
 After a video is done, the script will ask you to press enter and the next video will be displayed.
 
+Each `action` subfolder should now contain a `annotations_video.npy` file with the labels for each frame of the video.
+```
+actions/
+  0/
+     mass.txt
+     current_eef_pos_interpolated.npy 
+     target_end_effector_pos_interpolated.npy
+     annotations_video.npy # <----
+  1/
+    ...
+```
+
 ### Generate Interpolated data
 
+Now we will generate the interpolated annotations that will be used for training the policy.
+To do so, you can run the same command as before, but with the `--annotations` flag:
+```bash
+python read_sensors_utils/format_data_replay_buffer.py --path-save XXX --path-load YYY
+```
 
+Each `action` subfolder should now contain a `annotations_video_interpolated.npy` file with the interpolated labels for each frame of the video.
+```
+actions/
+  0/
+     mass.txt
+     current_eef_pos_interpolated.npy 
+     target_end_effector_pos_interpolated.npy
+     annotations_video.npy
+     annotations_video_interpolated.npy # <----
+  1/
+    ...
+```
 
 ### Generate the zarr dataset
 
 Now we will generate the zarr dataset that will be used for training the policy.
 
 ```bash
-
+python diffusion_policy/real_world/real_data_conversion.py --dataset-path XXX
 ```
 
-You may find here an example of such data.
+You may find [here](https://drive.google.com/file/d/1hUhZ9JoqZ_rFRux12stftwmuP7ML8OeS/view?usp=sharing) the resulting folder (obtained from the rosbags given above).
 
 ### Launch Diffusion Policy training using the previous dataset
 
 Now that the dataset is ready, you can specify its path in the configuration file.
-Go to the configuration file [franka_end_effector_image_obs.yaml](franka_end_effector_image_obs.yaml) and specify the path to the dataset in the `task.dataset_path` field.
+Go to the configuration files [classifier_training.yaml](classifier_training.yaml) and [franka_end_effector_image_obs.yaml](franka_end_effector_image_obs.yaml) and specify the path to the dataset in the `task.dataset_path` field.
 
-Then you can launch the training using the following command:
+Then you can launch the classifier training using the following command:
+```bash
+python train_classifier.py
+```
+
+The results should be stored in the `results_classifier/` folder.
+
+Then change `path_classifier_state_dict` in the configuration file [franka_end_effector_image_obs.yaml](franka_end_effector_image_obs.yaml) to the path of the classifier state dict that you just trained.
+
+Then you can launch the policy training using the following command:
 ```bash
 python train.py
 ```
 
+The results should be stored in the `results/` folder.
+
+#### Troubleshooting
+
+If you get any issues with `wandb`, you can set `logging.mode` to `disabled` in the configuration files.
+
+### Changing the data provided to the policy.
+
+In the dataset above, the observations are:
+- The end effector position `eef`
+- The RGB image from the camera `camera_1`
+- The depth image from the camera `camera_0`
+- A one-hot-encoding saying `scooping_accomplished` if the scooping is achieved.
+
+But at the moment, the policy only uses the RGB image and the end effector position.
+
+Let's say you want to use the depth image as well.
+
+You first need to modify the configuration files [classifier_training.yaml](classifier_training.yaml) and [franka_end_effector_image_obs.yaml](franka_end_effector_image_obs.yaml):
+
+1. Add the `depth` key to the `shape_meta` field in the `task` section. This section refers to the shape of the observations as perceived by the dataset.
+
+As `depth` is in `camera_0`, we just need to uncomment the commented lines below:
+
+```yaml
+      obs:
+#        camera_0:  # TODO to add depth to dataset internal
+#          shape:
+#            - 3
+#            - 120
+#            - 240
+#          type: rgb
+        camera_1:
+          shape:
+            - 3
+            - 120
+            - 240
+          type: rgb
+        mass:
+          shape:
+            - 1
+          type: low_dim
+        eef:
+          shape:
+            - 7
+          type: low_dim
+      label:  # Label will be converted to a one-hot encoding `scooping_accomplished`
+        shape:
+          - 1
+        type: low_dim
+```
+
+Then, modify the `__getitem__` method of the [real_franka_image_dataset.py](diffusion_policy%2Fdataset%2Freal_franka_image_dataset.py) to return an rgbd image in `camera_1`.
+
+2. Modify the `shape_meta` of `critic` and `policy` in the configuration file to include the `depth` key. This section refers to the shape of the observations as perceived by the policy and the critic.
+
+Now the policy and critic take a `camera_1` entry with 4 channels instead of 3:
+```yaml
+shape_meta:
+  action:
+    shape:
+      - 7
+  obs:
+    camera_1:
+      shape:
+#          - 4  # TODO
+        - 3
+        - 120
+        - 240
+      type: rgb
+    eef:
+      shape:
+       - 7
+      type: low_dim
+    scooping_accomplished:
+      shape:
+        - 3
+      type: low_dim
+```
+
+### Deploy Trained Policy
+
+Once the policy is trained, you can deploy it on the robot.
+
+First, choose a value for `FIXED_INITIAL_EEF`
+
+Then, in the `main`, specify the paths for:
+- `ckpt_path`, the policy checkpoint to load
+- `path_classifier`, the classifier state dict to load
+- `dataset_dir` the dataset directory
+
+Then you can launch the policy using the following command:
+```bash
+python real_world_deployment/run_policy_end_effector_jtc.py  # Uses a JTC controller
+```
+
+[run_policy_end_effector_ruckig.py](real_world_deployment%2Frun_policy_end_effector_ruckig.py) provides a ruckig controller interface, but may be slightly outdated.
 
 ## References to Diffusion Policy Paper
 

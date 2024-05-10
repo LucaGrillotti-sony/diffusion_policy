@@ -1,6 +1,6 @@
 hydra:
   run:
-    dir: 'data/outputs/${now:%Y.%m.%d}/${now:%H.%M.%S}_${name}_${task_name}'
+    dir: 'results/${now:%Y.%m.%d}/${now:%H.%M.%S}_${name}_${task_name}'
 
 _target_: diffusion_policy.workspace.train_diffusion_unet_hybrid_workspace.TrainDiffusionUnetHybridWorkspace
 action_dim: 7

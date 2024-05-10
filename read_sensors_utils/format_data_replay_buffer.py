@@ -11,6 +11,7 @@ import scipy.interpolate
 from cv_bridge import CvBridge
 from kdl_solver import KDLSolver
 from srl_utilities.se3 import se3
+import pandas as pd
 
 from annotator.utils import interpolate
 from read_sensors_utils.bag_file_parser import BagFileParser
@@ -83,6 +84,7 @@ class Jpeg2k(Codec):
             buf, verbose=self.verbose, numthreads=self.numthreads, out=out
         )
 
+
 @dataclasses.dataclass
 class ImageWithTimestamp:
     img_np: np.ndarray
@@ -90,14 +92,10 @@ class ImageWithTimestamp:
 
 
 def convert_image(cv_bridge: CvBridge, msg_ros, is_depth=False, side_size=(200, 400)):
-    msg_fmt = "passthrough"
     if is_depth:
         img_np = cv_bridge.imgmsg_to_cv2(msg_ros)
     else:
         img_np = cv_bridge.compressed_imgmsg_to_cv2(msg_ros, "passthrough")
-        # print(img_np.shape)
-    # print(msg_ros.header) 
-    # img_np = cv_bridge.imgmsg_to_cv2(msg_ros, desired_encoding='32FC1')
 
     if img_np is None:
         return None
@@ -124,13 +122,12 @@ def convert_image(cv_bridge: CvBridge, msg_ros, is_depth=False, side_size=(200, 
         img_np = np.expand_dims(img_np, axis=-1)
         img_np = np.concatenate([img_np, img_np, img_np], axis=-1)
 
-    # print("IMG NP Shape", img_np.shape)
     middle_height = 100
-    # print(middle_height)
+
     middle_width = img_np.shape[1] // 2 + 50
-    img_np = img_np[middle_height - (side_size[0] // 2):middle_height + (side_size[0] // 2), middle_width - (side_size[1] // 2):middle_width + (side_size[1] // 2)]
-    # img_np = img_np[250:1050, 0:800]
-    # print("IMG, depth", np.max(img_np), np.min(img_np), is_depth, img_np.dtype)
+    img_np = img_np[middle_height - (side_size[0] // 2):middle_height + (side_size[0] // 2),
+             middle_width - (side_size[1] // 2):middle_width + (side_size[1] // 2)]
+
     img_np = cv2.resize(img_np, (240, 120), interpolation=cv2.INTER_AREA)
     return img_np
 
@@ -144,7 +141,7 @@ def get_list_data_img(cv_bridge: CvBridge, list_images, time_offset, is_depth=Fa
             print("skipping ", index)
             continue
         list_data.append(ImageWithTimestamp(img_np, timestamp=(timestamp / 1e9) - time_offset))
-        # print((timestamp / 1e9) - time_offset)
+
     return list_data
 
 
@@ -157,12 +154,14 @@ def convert_to_arrays(list_data_img: List[ImageWithTimestamp]):
 def filter_out_data(list_data, timestamps_interpolation):
     timestamps_interpolation = timestamps_interpolation.ravel()
     array_img, array_timestamps = convert_to_arrays(list_data)
-    interpolator = scipy.interpolate.interp1d(array_timestamps, array_img, kind="nearest", fill_value="extrapolate", axis=0)
+    interpolator = scipy.interpolate.interp1d(array_timestamps, array_img, kind="nearest", fill_value="extrapolate",
+                                              axis=0)
     res = interpolator(timestamps_interpolation)
     list_new_data = []
     for img, t in zip(res, timestamps_interpolation):
         list_new_data.append(ImageWithTimestamp(img, t.item()))
     return list_new_data
+
 
 def make_video(list_images: List[ImageWithTimestamp], name, fps, is_color=True):
     import numpy as np
@@ -173,24 +172,6 @@ def make_video(list_images: List[ImageWithTimestamp], name, fps, is_color=True):
     size = _image.shape
     out = cv2.VideoWriter(name, cv2.VideoWriter_fourcc(*'mp4v'), fps, (size[1], size[0]), isColor=is_color)
     for _image_data in list_images:
-        # out.write(np.uint8(np.clip(_image_data.img_np, 0., 1.) * 255))
-        # if not is_color:
-        #     original_image = _image_data.img_np
-        #     original_image_with_border = cv2.copyMakeBorder(original_image, 1, 1, 1, 1, cv2.BORDER_DEFAULT)
-        #
-        #     img_np = np.clip(original_image, 100, 500)
-        #
-        #     # print(img_np.shape)
-        #     img_np = (img_np - np.min(img_np)) / (np.max(img_np) - np.min(img_np))
-        #     img_np = cv2.copyMakeBorder(img_np, 1, 1, 1, 1, cv2.BORDER_DEFAULT)
-        #     mask = original_image_with_border == 0.
-        #     mask = mask.astype(np.uint8)
-        #     kernel = np.ones((3, 3), 'uint8')
-        #     mask = cv2.dilate(mask, kernel, iterations=1)
-        #     img_np = cv2.inpaint(img_np.astype(np.float32), mask, 1, cv2.INPAINT_NS)
-        #     img_np = img_np[1:-1, 1:-1]
-        #     img_np = 255 * img_np
-        # else:
         img_np = _image_data.img_np
         out.write(np.uint8(img_np))
     out.release()
@@ -227,6 +208,7 @@ def end_effector_calculator(command_1, _kdl):
     pos_end_effector = np.concatenate([r.ravel(), q.ravel()])
     return pos_end_effector
 
+
 def treat_folder(path_load, path_save, index_episode, mass):
     path_load = Path(path_load)
     frequency = 10
@@ -234,33 +216,21 @@ def treat_folder(path_load, path_save, index_episode, mass):
     bag_file = path_load / f'{folder_name}_0.db3'
 
     parser = BagFileParser(bag_file)
-    # images_front_camera = parser.get_messages("/d405rs01/color/image_rect_raw/compressed")
     cv_bridge = CvBridge()
-    # print(images_azure_06)
-    print("BOUH", path_load)
     robot_description = get_robot_description(path_load)
     kdl = KDLSolver(robot_description)
     kdl.set_kinematic_chain('panda_link0', 'panda_hand')
 
     print("Collecting Data")
-    # images_azure_06 = parser.get_messages("/azure06/rgb/image_raw/compressed")
-    # images_azure_07 = parser.get_messages("/azure07/rgb/image_raw/compressed")
-    # images_azure_08 = parser.get_messages("/azure08/rgb/image_raw/compressed")
+
     images_hand_eye_rgb = parser.get_messages("/d405rs01/color/image_rect_raw/compressed")
     images_hand_eye_depth = parser.get_messages("/d405rs01/aligned_depth_to_color/image_raw")
 
-    # start_time = max(images_azure_06[0][0], images_azure_07[0][0], images_azure_08[0][0], images_hand_eye_rgb[0][0]) / 1e9
-    print(images_hand_eye_rgb[0][0])
-    print(images_hand_eye_depth[0][0])
     start_time = max(images_hand_eye_rgb[0][0], images_hand_eye_depth[0][0]) / 1e9
 
-
     # Converting to numpy arrays
-    #print("Converting Data to Numpy Arrays and reshape")
     data_img = dict()
-    # data_img["azure_06"] = get_list_data_img(cv_bridge, images_azure_06, time_offset=start_time)
-    # data_img["azure_07"] = get_list_data_img(cv_bridge, images_azure_07, time_offset=start_time)
-    # data_img["azure_08"] = get_list_data_img(cv_bridge, images_azure_08, time_offset=start_time)
+
     data_img["images_hand_eye_rgb"] = get_list_data_img(cv_bridge, images_hand_eye_rgb, time_offset=start_time)
     data_img["images_hand_eye_depth"] = get_list_data_img(cv_bridge,
                                                           images_hand_eye_depth,
@@ -268,18 +238,13 @@ def treat_folder(path_load, path_save, index_episode, mass):
                                                           is_depth=True)
 
     fps_dict = dict()
-    # fps_dict["azure_06"] = 30
-    # fps_dict["azure_07"] = 30
-    # fps_dict["azure_08"] = 30
     fps_dict["images_hand_eye_rgb"] = 15
     fps_dict["images_hand_eye_depth"] = 15
 
     max_time = min(_data_list[-1].timestamp for _data_list in data_img.values())
 
-    print(start_time, max_time)
-
     print("Filtering out data")
-    timestamps_interpolation = np.arange(start=0, stop=max_time, step=1./frequency)
+    timestamps_interpolation = np.arange(start=0, stop=max_time, step=1. / frequency)
 
     print("frequency", len(data_img["images_hand_eye_rgb"]) / max_time)
 
@@ -289,18 +254,9 @@ def treat_folder(path_load, path_save, index_episode, mass):
         name_file = f"{index_camera}.mp4"
         _path_folder = path_save / "videos" / str(index_episode)
         _path_folder.mkdir(exist_ok=True, parents=True)
-        # if key.endswith("depth"):
-        #     is_color=False
-        #     img_np = data_img[key][1].img_np
-        #     img_np = img_np.ravel()
 
-        #     print("is_nan", np.any(np.isnan(img_np)))
-        #     img_np = np.clip(img_np, 0., 1.)
-        # else:
-        #     is_color = True
-
-        # TODO: put back
-        make_video(data_img[key], name=str(_path_folder / name_file), fps=fps_dict[key], is_color=True)
+        make_video(data_img[key], name=str(_path_folder / name_file), fps=fps_dict[key],
+                   is_color=True)  # even if it's depth, it's color
 
         _path_numpy = path_save / "numpy" / str(index_episode)
         _path_numpy.mkdir(exist_ok=True, parents=True)
@@ -352,7 +308,6 @@ def treat_folder(path_load, path_save, index_episode, mass):
 
 
 def read_masses_csv(path_csv):
-    import pandas as pd
     df = pd.read_csv(str(path_csv))
     dict_masses_per_index = dict()
     df_index = df["index"]
@@ -362,19 +317,29 @@ def read_masses_csv(path_csv):
     return dict_masses_per_index
 
 
-def main():
-    PATH_TO_LOAD = pathlib.Path("/home/ros/humble/src/project_shokunin/shokunin_common/rl/scooping_agent/puree_agent/bags_parameterized_motion/").absolute()
-    PATH_SAVE = pathlib.Path("/home/ros/humble/src/project_shokunin/shokunin_common/rl/scooping_agent/puree_agent/dataset_parameterized_motion/").absolute()
-    
-    PATH_MASSES_CSV = PATH_TO_LOAD / "data.csv"
-    OVERRIDE = True
+def get_args():
+    import argparse
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--path-save", type=str, required=True)
+    parser.add_argument("--path-load", type=str, required=True)
+    parser.add_argument("--override", action="store_true")
+    return parser.parse_args()
 
-    PATH_SAVE.mkdir(exist_ok=True, parents=True)
-    rosbag_paths = [file for file in PATH_TO_LOAD.iterdir() if file.name.startswith("rosbag")]
+
+def main():
+    args = get_args()
+    path_save = pathlib.Path(args.path_save).absolute()
+    path_load = pathlib.Path(args.path_load).absolute()
+    override = args.override
+
+    PATH_MASSES_CSV = path_load / "data.csv"
+
+    path_save.mkdir(exist_ok=True, parents=True)
+    rosbag_paths = [file for file in path_load.iterdir() if file.name.startswith("rosbag")]
 
     masses_per_demo = read_masses_csv(PATH_MASSES_CSV)
 
-    for file in PATH_TO_LOAD.iterdir():
+    for file in path_load.iterdir():
         print(file)
     print(rosbag_paths)
 
@@ -383,14 +348,15 @@ def main():
     for index, rosbag_paths in enumerate(sorted(rosbag_paths, key=sorting_fn)):
         print("----------------------------------------------------------------------------------------")
         print(f"Treating folder {rosbag_paths}")
-        print(PATH_SAVE / str(index))
-        if not OVERRIDE and (PATH_SAVE / 'numpy' / str(index)).exists():
-            print(f"Skipping as {PATH_SAVE / rosbag_paths.name} exists")
+        print(path_save / str(index))
+        if not override and (path_save / 'numpy' / str(index)).exists():
+            print(f"Skipping as {path_save / rosbag_paths.name} exists")
             continue
         treat_folder(path_load=rosbag_paths.absolute(),
-                     path_save=PATH_SAVE,
+                     path_save=path_save,
                      index_episode=index,
                      mass=masses_per_demo[index])
+
 
 if __name__ == '__main__':
     main()
