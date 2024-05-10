@@ -121,7 +121,12 @@ Now we will generate the zarr dataset that will be used for training the policy.
 python diffusion_policy/real_world/real_data_conversion.py --dataset-path XXX
 ```
 
+This should add to the same folder:
+- a new folder called `replay_buffer.zarr`
+- a new file `replay_buffer_final.zarr.zip`
+
 You may find [here](https://drive.google.com/file/d/1hUhZ9JoqZ_rFRux12stftwmuP7ML8OeS/view?usp=sharing) the resulting folder (obtained from the rosbags given above).
+
 
 ### Launch Diffusion Policy training using the previous dataset
 
