@@ -30,10 +30,6 @@ Where each rosbag contains the following topics:
 
 You may find an example of such data [here](https://drive.google.com/file/d/1aAjXYi9mlZQcQlYLDBZ1H6yckgkJnXjJ/view?usp=drive_link).
 
-[//]: # (TODO: simpler)
-
-
-
 ### Extract data from rosbag recordings
 
 In this step, we will convert the rosbags into interpretable data.
@@ -198,7 +194,7 @@ As `depth` is in `camera_0`, we just need to uncomment the commented lines below
         type: low_dim
 ```
 
-Then, modify the `__getitem__` method of the [real_franka_image_dataset.py](diffusion_policy%2Fdataset%2Freal_franka_image_dataset.py) to return an rgbd image in `camera_1`.
+Then, modify the `__getitem__` method of the [real_franka_image_dataset.py](diffusion_policy/dataset/real_franka_image_dataset.py) to return an rgbd image in `camera_1`.
 
 2. Modify the `shape_meta` of `critic` and `policy` in the configuration file to include the `depth` key. This section refers to the shape of the observations as perceived by the policy and the critic.
 
@@ -236,15 +232,25 @@ Then, in the `main`, specify the paths for:
 - `ckpt_path`, the policy checkpoint to load
 - `path_classifier`, the classifier state dict to load
 - `dataset_dir` the dataset directory
+- `path_bag_robot_description`, the path to any rosbag containing the robot description
 
 Then you can launch the policy using the following command:
 ```bash
 python real_world_deployment/run_policy_end_effector_jtc.py  # Uses a JTC controller
 ```
 
-[run_policy_end_effector_ruckig.py](real_world_deployment%2Frun_policy_end_effector_ruckig.py) provides a ruckig controller interface, but may be slightly outdated.
+[run_policy_end_effector_ruckig.py](real_world_deployment/run_policy_end_effector_ruckig.py) provides a ruckig controller interface, but may be slightly outdated.
 
-## References to Diffusion Policy Paper
+### Running an analysis on data from the dataset.
+
+You can simply run [robot_dataset.py](analysis/predictions/robot_dataset.py) after setting `index_episode` and after specifying the paths for:
+- `ckpt_path`, the policy checkpoint to load
+- `path_classifier`, the classifier state dict to load
+- `dataset_dir` the dataset directory
+
+This way, you can analyze the predictions of the policy on one episode of the dataset.
+
+## old - References to Diffusion Policy Paper
 
 [[Project page]](https://diffusion-policy.cs.columbia.edu/)
 [[Paper]](https://diffusion-policy.cs.columbia.edu/#paper)
